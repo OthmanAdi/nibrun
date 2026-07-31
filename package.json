@@ -1,5 +1,5 @@
 {
-  "name": "bun-monorepo",
+  "name": "nibrun",
   "type": "module",
   "private": true,
   "scripts": {
