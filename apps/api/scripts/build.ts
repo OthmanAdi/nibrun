@@ -1,15 +1,23 @@
-import { rm } from 'node:fs/promises';
+import { cp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { DB_MIGRATIONS_DIR_NAME } from '#lib/assets.ts';
+import { DB_MIGRATIONS_DIR_NAME, PUBLIC_DASHBOARD_DIR_NAME } from '#lib/assets.ts';
 
 const API_DIR = join(import.meta.dir, '..');
 const API_DIST_DIR = join(API_DIR, 'dist');
 const API_BINARY_FILE = join(API_DIST_DIR, 'nibrun-api');
 const API_ENTRYPOINT = 'src/index.ts';
 const DB_MIGRATIONS_DIR = join(API_DIR, 'src/db', DB_MIGRATIONS_DIR_NAME);
+const DASHBOARD_DIST_DIR = join(API_DIR, '..', 'dashboard', 'dist');
+const PUBLIC_DASHBOARD_DIR = join(API_DIR, PUBLIC_DASHBOARD_DIR_NAME);
 
 console.log('🧹 Cleaning dist dir...');
 await rm(API_DIST_DIR, { recursive: true, force: true });
+
+console.log('🧹 Cleaning public dashboard dir...');
+await rm(PUBLIC_DASHBOARD_DIR, { recursive: true, force: true });
+
+console.log('📄 Copying dashboard assets...');
+await cp(DASHBOARD_DIST_DIR, PUBLIC_DASHBOARD_DIR, { recursive: true });
 
 console.log('🔨 Compiling binary...');
 const buildResult = await Bun.build({
@@ -17,7 +25,7 @@ const buildResult = await Bun.build({
   compile: {
     outfile: API_BINARY_FILE,
     // @ts-expect-error: assets is still not in the types
-    assets: [DB_MIGRATIONS_DIR],
+    assets: [PUBLIC_DASHBOARD_DIR, DB_MIGRATIONS_DIR],
   },
   naming: {
     asset: '[dir]/[name].[ext]',

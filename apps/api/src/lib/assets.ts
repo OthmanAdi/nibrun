@@ -1,13 +1,15 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-// Shared with the build script, which embeds this folder into the binary under
-// the same name.
+// Shared with the build script, which embeds these folders into the binary under
+// the same names.
 export const DB_MIGRATIONS_DIR_NAME = 'migrations';
+export const PUBLIC_DASHBOARD_DIR_NAME = 'public';
 
-// Where the tree sits when running from source. A compiled binary reads the
-// files off `Bun.embeddedFiles` instead, so it never looks this up.
+// Where each tree sits when running from source. A compiled binary reads the
+// files off `Bun.embeddedFiles` instead, so it never looks these up.
 const DB_MIGRATIONS_DIR = resolve(import.meta.dir, '..', 'db', DB_MIGRATIONS_DIR_NAME);
+const PUBLIC_DASHBOARD_DIR = resolve(import.meta.dir, '..', '..', PUBLIC_DASHBOARD_DIR_NAME);
 
 /** Keyed by the path of the file relative to the folder it came from. */
 export type AssetFiles = Map<string, Blob>;
@@ -16,6 +18,12 @@ export function getMigrations(): AssetFiles {
   return isStandalone()
     ? readEmbeddedFolder(DB_MIGRATIONS_DIR_NAME)
     : readFolder(DB_MIGRATIONS_DIR);
+}
+
+export function getPublicAssets(): AssetFiles {
+  return isStandalone()
+    ? readEmbeddedFolder(PUBLIC_DASHBOARD_DIR_NAME)
+    : readFolder(PUBLIC_DASHBOARD_DIR);
 }
 
 function isStandalone(): boolean {
@@ -47,6 +55,8 @@ function readFolder(folder: string): AssetFiles {
   const files: AssetFiles = new Map();
   for (const entry of new Bun.Glob('**/*').scanSync({ cwd: folder, onlyFiles: true })) {
     const filePath = join(folder, entry);
+    // Read eagerly, like the embedded files: a static route can't stream a lazy
+    // BunFile, it needs the body in memory.
     const fileType = Bun.file(filePath).type;
     files.set(entry, new Blob([readFileSync(filePath)], { type: fileType }));
   }

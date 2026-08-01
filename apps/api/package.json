@@ -6,8 +6,7 @@
     "#*": "./src/*"
   },
   "exports": {
-    "./types": "./src/types.ts",
-    "./routes": "./src/lib/routes/prefixes.ts"
+    "./types": "./src/types.ts"
   },
   "scripts": {
     "build": "bun run scripts/build.ts",
