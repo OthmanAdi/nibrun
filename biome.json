@@ -9,10 +9,12 @@
     "ignoreUnknown": false,
     "includes": [
       "**",
+      "!**/.claude",
       "!**/node_modules",
       "!**/dist",
       "!**/bun.lock",
-      "!**/*.lock"
+      "!**/*.lock",
+      "!apps/api/src/db/queries.gen.d.ts"
     ]
   },
   "formatter": {

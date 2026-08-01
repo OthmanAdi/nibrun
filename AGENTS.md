@@ -1,5 +1,8 @@
 ## Project
 
+nibrun hosts a user-uploaded compiled binary in an isolated guest with a
+persistent volume mounted at `data/`.
+
 Bun + TypeScript monorepo (`apps/*`, `packages/*`).
 
 ## Stack
@@ -11,7 +14,12 @@ Bun + TypeScript monorepo (`apps/*`, `packages/*`).
 
 ## Code style
 
-- No comments that restate what types and naming already say — only comment the non-obvious
+- **Code must be self-explanatory — this is strict.** Express intent through
+  naming, types, and structure, not prose. Do not write a comment that restates
+  what the code already says. A comment is warranted only to explain a tradeoff,
+  a non-obvious constraint, or a decision the reader cannot recover from the code
+  (why, never what). If you feel the need to explain _what_ a block does, rename
+  or extract it instead. Delete comments that no longer earn their place.
 - Imports use `#*` subpath mapping (e.g. `import { foo } from '#services/foo'`)
 - Single source of truth — never duplicate keys, enum values, or type info that belongs to a class/module; derive from the source instead
 - Biome enforces `useMaxParams: 1` — wrap multiple params in an object
@@ -49,4 +57,5 @@ The root `README.md` is the project homepage: typically lists the public package
 When a change affects code style, tooling, conventions, or project taste (new lint rules, formatter config, naming patterns, dependency choices, etc.), propose updating this file to reflect it.
 
 ## Pull requests
+
 Keep PR descriptions minimal — the diff is self-explanatory, so don't enumerate every change. State the intent in a line or two.

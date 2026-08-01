@@ -1,0 +1,25 @@
+{
+  "name": "@repo/api",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#*": "./src/*"
+  },
+  "exports": {
+    "./types": "./src/types.ts"
+  },
+  "scripts": {
+    "build": "bun run scripts/build.ts",
+    "codegen:sql": "bun bun-sqlgen generate 'src/repositories/*.repository.ts' --migrations src/db/migrations --out src/db/queries.gen.d.ts",
+    "codegen:sql:check": "bun bun-sqlgen generate 'src/repositories/*.repository.ts' --migrations src/db/migrations --out src/db/queries.gen.d.ts --check",
+    "check:types": "bun codegen:sql:check && bun run --bun tsc"
+  },
+  "dependencies": {
+    "@ilbertt/bun-sqlgen": "^0.4.0",
+    "elysia": "^1.4.29"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}
