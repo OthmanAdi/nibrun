@@ -1,0 +1,116 @@
+name: cd
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      allow_destroy:
+        description: "Apply even if the plan destroys or replaces resources"
+        type: boolean
+        default: false
+
+concurrency:
+  group: cd
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+env:
+  # Authoritative: passed to Terraform as TF_VAR_region, so the two cannot drift.
+  AWS_REGION: eu-west-2
+
+jobs:
+  cd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/prepare
+
+      # GHCR rejects uppercase, and expressions have no lowercase function.
+      - name: Resolve image repository
+        id: registry
+        run: echo "repo=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push api
+        id: api_image
+        uses: ./.github/actions/build-and-push-docker
+        with:
+          image-repository: ${{ steps.registry.outputs.repo }}/api
+          image-tag: ${{ github.sha }}
+          context: .
+          dockerfile: apps/api/Dockerfile
+          cache-scope: api
+
+      - name: Build and push pg-backup
+        id: pg_backup_image
+        uses: ./.github/actions/build-and-push-docker
+        with:
+          image-repository: ${{ steps.registry.outputs.repo }}/pg-backup
+          image-tag: ${{ github.sha }}
+          context: infra/pg-backup
+          dockerfile: infra/pg-backup/Dockerfile
+          cache-scope: pg-backup
+
+      - name: Verify images are public
+        env:
+          API_IMAGE_URI: ${{ steps.api_image.outputs.image-uri }}
+          PG_BACKUP_IMAGE_URI: ${{ steps.pg_backup_image.outputs.image-uri }}
+        run: bun run --filter @repo/internal-scripts verify-public-images
+
+      - name: Configure AWS credentials (Terraform role)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          # The wrapper wraps every command in extra output, which would end up
+          # inside the JSON terraform-apply parses.
+          terraform_wrapper: false
+
+      - name: Terraform apply
+        id: tf
+        env:
+          TF_VAR_region: ${{ env.AWS_REGION }}
+          TF_VAR_api_hostname: ${{ vars.API_HOSTNAME }}
+          ALLOW_DESTROY: ${{ inputs.allow_destroy }}
+        run: bun run --filter @repo/internal-scripts terraform-apply
+
+      # Drops from admin to the scoped role for everything that touches the app.
+      - name: Configure AWS credentials (deploy role)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ steps.tf.outputs.github_deploy_role_arn }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Publish runtime bundle
+        id: bundle
+        env:
+          DEPLOY_BUCKET: ${{ steps.tf.outputs.deploy_bucket }}
+        run: bun run --filter @repo/internal-scripts publish-runtime-bundle
+
+      - name: Deploy via SSM
+        env:
+          BUNDLE_URL: ${{ steps.bundle.outputs.url }}
+          DEPLOY_GROUP: ${{ steps.tf.outputs.deploy_group }}
+          SSM_SECRET_PREFIX: ${{ steps.tf.outputs.ssm_secret_prefix }}
+          DATA_VOLUME_ID: ${{ steps.tf.outputs.data_volume_id }}
+          API_IMAGE_URI: ${{ steps.api_image.outputs.image-uri }}
+          API_HOSTNAME: ${{ steps.tf.outputs.api_hostname }}
+          API_S3_BUCKET: ${{ steps.tf.outputs.api_s3_bucket }}
+          API_S3_ENDPOINT: ${{ steps.tf.outputs.api_s3_endpoint }}
+          PG_BACKUP_IMAGE_URI: ${{ steps.pg_backup_image.outputs.image-uri }}
+          PG_BACKUP_BUCKET: ${{ steps.tf.outputs.pg_backup_bucket }}
+        run: bun run --filter @repo/internal-scripts ssm-deploy
