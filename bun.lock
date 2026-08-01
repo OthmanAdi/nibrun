@@ -63,6 +63,13 @@
         "typescript": "catalog:",
       },
     },
+    "packages/internal-scripts": {
+      "name": "@repo/internal-scripts",
+      "devDependencies": {
+        "@repo/typescript-config": "workspace:*",
+        "typescript": "catalog:",
+      },
+    },
     "packages/pack-utils": {
       "name": "@repo/pack-utils",
       "devDependencies": {
@@ -246,6 +253,8 @@
     "@repo/api-client": ["@repo/api-client@workspace:packages/api-client"],
 
     "@repo/dashboard": ["@repo/dashboard@workspace:apps/dashboard"],
+
+    "@repo/internal-scripts": ["@repo/internal-scripts@workspace:packages/internal-scripts"],
 
     "@repo/pack-utils": ["@repo/pack-utils@workspace:packages/pack-utils"],
 

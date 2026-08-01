@@ -1,0 +1,16 @@
+{
+  "name": "@repo/internal-scripts",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#*": "./src/*"
+  },
+  "scripts": {
+    "build-and-push-image": "bun run src/build-and-push-image.ts",
+    "check:types": "bun run --bun tsc"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}
