@@ -1,0 +1,121 @@
+# Local stack: Postgres, MinIO, and the API. Copy .env.example to .env first.
+#
+# Anything truly opinionated (internal service URLs, container ports, bucket
+# bootstrap) lives here, not in .env.
+
+services:
+  postgres-db:
+    image: postgres:18-alpine
+    container_name: postgres-db
+    environment:
+      POSTGRES_USER: ${API_DB_USER}
+      POSTGRES_PASSWORD: ${API_DB_PASSWORD}
+      POSTGRES_DB: ${API_DB_NAME}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    ports:
+      - "127.0.0.1:${API_DB_PORT}:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: always
+    networks:
+      - nibrun
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${API_S3_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${API_S3_SECRET_ACCESS_KEY}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "127.0.0.1:${API_S3_PORT}:9000"
+      - "127.0.0.1:${API_S3_CONSOLE_PORT}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: always
+    networks:
+      - nibrun
+
+  minio-prepare:
+    image: minio/mc:latest
+    container_name: minio-prepare
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        mc alias set nibrun http://minio:9000 "$$API_S3_ACCESS_KEY_ID" "$$API_S3_SECRET_ACCESS_KEY"
+        mc mb --ignore-existing "nibrun/$$API_S3_BUCKET"
+    environment:
+      - API_S3_ACCESS_KEY_ID
+      - API_S3_SECRET_ACCESS_KEY
+      - API_S3_BUCKET
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - nibrun
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: nibrun-api:local
+    container_name: api
+    environment:
+      - PORT=3000
+      - BASE_URL=${API_BASE_URL}
+      - DATABASE_URL=postgresql://${API_DB_USER}:${API_DB_PASSWORD}@postgres-db:5432/${API_DB_NAME}
+      - BETTER_AUTH_SECRET=${API_BETTER_AUTH_SECRET}
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET=${API_S3_BUCKET}
+      - S3_ACCESS_KEY_ID=${API_S3_ACCESS_KEY_ID}
+      - S3_SECRET_ACCESS_KEY=${API_S3_SECRET_ACCESS_KEY}
+    ports:
+      - "127.0.0.1:${API_PORT}:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/busybox/wget",
+          "-q",
+          "--spider",
+          "http://localhost:3000/api/health",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: always
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      minio-prepare:
+        condition: service_completed_successfully
+    networks:
+      - nibrun
+
+networks:
+  nibrun:
+
+volumes:
+  postgres-data:
+    driver: local
+  minio-data:
+    driver: local

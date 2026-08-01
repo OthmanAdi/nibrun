@@ -5,6 +5,7 @@ A monorepo powered by [Bun](https://bun.sh) and [Turborepo](https://turborepo.de
 ## Requirements
 
 - [Bun](https://bun.sh)
+- [Docker](https://docs.docker.com/get-started/get-docker/) — to run the stack
 
 ## Getting started
 

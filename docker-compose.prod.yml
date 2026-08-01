@@ -1,0 +1,24 @@
+# Production override, applied on top of docker-compose.yml on the box:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml ...
+#
+# Differences from local:
+#   - The api runs a released image instead of a local build.
+#   - Data-bearing volumes are bind-backed by the persistent disk mounted at
+#     /data, so they survive instance replacement.
+
+services:
+  api:
+    build: !reset null
+    image: ${API_IMAGE_URI}
+
+volumes:
+  postgres-data:
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/volumes/postgres-data
+  minio-data:
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/volumes/minio-data

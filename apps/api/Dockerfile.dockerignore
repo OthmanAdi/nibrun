@@ -1,0 +1,14 @@
+.git
+.github
+.vscode
+.zed
+.claude
+**/node_modules
+**/dist
+**/.turbo
+**/.tanstack
+apps/api/public
+**/.env*
+**/*.dockerignore
+**/*.md
+docker-compose*.yml
