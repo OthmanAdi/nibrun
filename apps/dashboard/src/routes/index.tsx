@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { HealthStatus } from '#components/health-status.tsx';
 
 export const Route = createFileRoute('/')({ component: Home });
 
@@ -9,6 +10,9 @@ function Home() {
       <p className="mt-4 text-lg">
         Edit <code>src/routes/index.tsx</code> to get started.
       </p>
+      <div className="mt-6">
+        <HealthStatus />
+      </div>
     </div>
   );
 }

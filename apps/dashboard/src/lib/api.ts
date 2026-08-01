@@ -1,0 +1,5 @@
+import { createApiClient } from '@repo/api-client';
+
+// Same origin in both environments: in production the api binary serves the dashboard,
+// in development Vite proxies the api prefix to the api (see vite.config.ts).
+export const api = createApiClient(window.location.origin);

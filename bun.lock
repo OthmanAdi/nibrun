@@ -29,6 +29,7 @@
     "apps/dashboard": {
       "name": "@repo/dashboard",
       "dependencies": {
+        "@repo/api-client": "workspace:*",
         "@tanstack/react-devtools": "^0.10.9",
         "@tanstack/react-query": "^5.101.4",
         "@tanstack/react-router": "^1.170.18",
@@ -48,6 +49,17 @@
         "@vitejs/plugin-react": "^6.0.5",
         "typescript": "catalog:",
         "vite": "^8.2.0",
+      },
+    },
+    "packages/api-client": {
+      "name": "@repo/api-client",
+      "dependencies": {
+        "@elysiajs/eden": "^1.4.9",
+      },
+      "devDependencies": {
+        "@repo/api": "workspace:*",
+        "@repo/typescript-config": "workspace:*",
+        "typescript": "catalog:",
       },
     },
     "packages/pack-utils": {
@@ -161,6 +173,8 @@
 
     "@electric-sql/pglite": ["@electric-sql/pglite@0.5.4", "", {}, "sha512-yYZUyyXrHU7tPlCjwZQJ6hIG9DscdCCn7Uk0mYKwC1FeHX286AbcmFveMiRBEak8e9iPupjsoVImN3yJZVed2g=="],
 
+    "@elysiajs/eden": ["@elysiajs/eden@1.4.9", "", { "peerDependencies": { "elysia": ">=1.4.19" } }, "sha512-3CKVD4ycVjB8nCNssfmhnUuq3SzSHkUES3v5PNCFr9LxIrx39/HVRAZ8z2sLxrFqzUs48dCBZaxoZzJ5UUVHDA=="],
+
     "@emnapi/core": ["@emnapi/core@2.0.0-alpha.3", "", { "dependencies": { "@emnapi/wasi-threads": "2.0.1", "tslib": "^2.4.0" } }, "sha512-AZypUeJ/yByuxyS7BlSNRDOMLMlROYtjYdIAuBmJssVz1UJDSeYxLrdizhXCFYhedC5bqd/ASy8EuNXbVVXp9g=="],
 
     "@emnapi/runtime": ["@emnapi/runtime@2.0.0-alpha.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-hFPAhMUjJD9BSyCANEISPOogeXC9Zo9ZQl7L6vKnaVsMkCtzznaW/naYypeyl0Gv5rYfWYsZbpixTMpjDJzQeA=="],
@@ -224,6 +238,8 @@
     "@oxc-project/types": ["@oxc-project/types@0.142.0", "", {}, "sha512-7W+2q5AKQVU36fkaryontrHn3YDt1RyUYXatw9i5H8ocYe2sPKSFB6eS8WNPeRKiN1qAWWZUPm7gwFzJGrccqQ=="],
 
     "@repo/api": ["@repo/api@workspace:apps/api"],
+
+    "@repo/api-client": ["@repo/api-client@workspace:packages/api-client"],
 
     "@repo/dashboard": ["@repo/dashboard@workspace:apps/dashboard"],
 
