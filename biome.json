@@ -14,7 +14,8 @@
       "!**/dist",
       "!**/bun.lock",
       "!**/*.lock",
-      "!apps/api/src/db/queries.gen.d.ts"
+      "!apps/api/src/db/queries.gen.d.ts",
+      "!apps/dashboard/src/routeTree.gen.ts"
     ]
   },
   "formatter": {
