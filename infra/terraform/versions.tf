@@ -4,9 +4,9 @@ terraform {
   # Inline rather than -backend-config: there is one stack, so there is nothing
   # to swap. The bucket is created by the bootstrap stack.
   backend "s3" {
-    bucket       = "nibrun-tfstate"
+    bucket       = "nibrun-infra-tfstate"
     key          = "nibrun/terraform.tfstate"
-    region       = "eu-west-2"
+    region       = "eu-central-1"
     encrypt      = true
     use_lockfile = true
   }
