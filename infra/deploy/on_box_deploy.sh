@@ -39,10 +39,26 @@ API_GITHUB_CLIENT_SECRET="$(secret api_github_client_secret)"
 API_S3_ACCESS_KEY_ID="$(secret api_s3_access_key_id)"
 API_S3_SECRET_ACCESS_KEY="$(secret api_s3_secret_access_key)"
 
+# Everything written from here on carries a secret: the PEMs below, then .env.
+umask 077
+
+# The origin certificate Caddy serves. Held base64-encoded in SSM because a PEM
+# is multi-line and `--output text` mangles that, with no jq here to read the
+# JSON form instead; Terraform does the encoding (ssm.tf).
+write_pem() {
+  secret "$1" | base64 -d > "$2"
+}
+
+# Inside caddy/ because that whole directory is what gets mounted, and outside
+# the bundle's own files, which the next deploy overwrites.
+log "Writing the origin TLS material"
+mkdir -p caddy/tls
+write_pem caddy_tls_cert caddy/tls/origin.crt
+write_pem caddy_tls_key caddy/tls/origin.key
+
 # Every key here is a compose substitution variable; docker-compose.yml maps each
 # onto the name the image expects. Values fixed by the compose topology
 # (container ports, internal service URLs) deliberately do not appear.
-umask 077
 cat > .env <<EOF
 AWS_REGION=${AWS_REGION}
 
@@ -111,6 +127,18 @@ EOF
   fi
   sleep 5
 done
+
+# `up -d` leaves a container alone when only a bind-mounted file changed, so a
+# new Caddyfile or a re-issued certificate would go on being ignored. Reload
+# picks both up with no dropped connections, where recreating the edge would
+# drop them, and a config that does not load fails the deploy without disturbing
+# the one already running.
+#
+# --force because a rotated certificate does not change the Caddyfile, and
+# without it Caddy compares the two configs, finds them identical and skips the
+# reload — leaving the old certificate served until something restarts it.
+log "Reloading Caddy"
+$compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --force
 
 log "Compose service status"
 $compose ps -a --format 'table {{.Name}}\t{{.Status}}'
