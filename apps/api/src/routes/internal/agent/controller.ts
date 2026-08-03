@@ -1,0 +1,16 @@
+import { AGENT_API_PREFIX } from '@repo/protocol';
+import { Elysia } from 'elysia';
+import { RoutePrefix } from '#lib/routes/prefixes.ts';
+import { AgentDesiredStateController } from '#routes/internal/agent/desired-state/controller.ts';
+import { AgentReportedStateController } from '#routes/internal/agent/reported-state/controller.ts';
+import { AgentSessionController } from '#routes/internal/agent/session/controller.ts';
+
+// The protocol owns the whole path. This controller applies only the segment below
+// the prefix its parent applies, derived from that one constant so the two cannot
+// drift, and its children keep the bare paths the protocol names.
+const AGENT_PREFIX = AGENT_API_PREFIX.slice(RoutePrefix.Internal.length);
+
+export const AgentController = new Elysia({ prefix: AGENT_PREFIX })
+  .use(AgentSessionController)
+  .use(AgentDesiredStateController)
+  .use(AgentReportedStateController);
