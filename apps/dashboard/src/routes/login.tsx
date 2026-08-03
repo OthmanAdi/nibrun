@@ -1,5 +1,6 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { GithubSignInButton } from '#components/github-sign-in-button.tsx';
+import { BrandMark } from '#components/brand-mark.tsx';
+import { LoginForm } from '#components/login/login-form.tsx';
 import { Route as IndexRoute } from '#routes/index.tsx';
 
 type LoginSearch = {
@@ -19,16 +20,11 @@ export const Route = createFileRoute('/login')({
 });
 
 function RouteComponent() {
-  const { redirect: redirectTo } = Route.useSearch();
-
   return (
-    <div className="flex min-h-screen items-center justify-center p-8">
+    <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
       <div className="flex w-full max-w-sm flex-col gap-6">
-        <div>
-          <h1 className="font-bold text-3xl">nibrun</h1>
-          <p className="mt-2 text-gray-500">Sign in to continue.</p>
-        </div>
-        <GithubSignInButton callbackURL={redirectTo ?? IndexRoute.to} />
+        <BrandMark />
+        <LoginForm />
       </div>
     </div>
   );

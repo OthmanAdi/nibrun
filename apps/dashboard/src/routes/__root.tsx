@@ -1,9 +1,7 @@
-import { TanStackDevtools } from '@tanstack/react-devtools';
 import type { QueryClient } from '@tanstack/react-query';
-import { ReactQueryDevtoolsPanel } from '@tanstack/react-query-devtools';
 import { createRootRouteWithContext, Outlet, redirect } from '@tanstack/react-router';
-import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools';
-import { AppHeader } from '#components/app-header.tsx';
+import { AppDevtools } from '#components/app-devtools.tsx';
+import { AppShell } from '#components/app-shell.tsx';
 import { sessionQueryOptions } from '#queries/session.ts';
 import { Route as IndexRoute } from '#routes/index.tsx';
 import { Route as LoginRoute } from '#routes/login.tsx';
@@ -35,23 +33,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 function RouteComponent() {
   return (
     <>
-      <AppHeader />
-      <Outlet />
-      <TanStackDevtools
-        config={{
-          position: 'bottom-right',
-        }}
-        plugins={[
-          {
-            name: 'TanStack Router',
-            render: <TanStackRouterDevtoolsPanel />,
-          },
-          {
-            name: 'TanStack Query',
-            render: <ReactQueryDevtoolsPanel />,
-          },
-        ]}
-      />
+      <AppShell>
+        <Outlet />
+      </AppShell>
+      <AppDevtools />
     </>
   );
 }
