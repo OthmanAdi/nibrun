@@ -12,6 +12,7 @@ import {
   PROTOCOL_VERSION_HEADER,
   parseMessage,
   type SecretString,
+  TENANT_LOG_CONTENT_TYPE,
 } from '@repo/protocol';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -36,9 +37,9 @@ export class ControlPlaneError extends Error {
 }
 
 /**
- * Every call is an outbound POST carrying JSON, and every response is validated before it is
- * believed. The two programs ship on different pipelines, so a response the agent cannot
- * parse is the normal consequence of a rollout rather than an impossible state.
+ * Every call is an outbound POST. Control calls carry one JSON document and validate the reply;
+ * tenant logs use their own long-lived NDJSON request so that stream backpressure never enters
+ * the desired-state path.
  */
 export class ControlPlaneClient {
   readonly #baseUrl: string;
@@ -84,6 +85,31 @@ export class ControlPlaneClient {
       body: report,
       sessionToken,
     });
+  }
+
+  async streamTenantLogs({
+    sessionToken,
+    body,
+    signal,
+  }: {
+    sessionToken: SecretString;
+    body: ReadableStream<Uint8Array>;
+    signal: AbortSignal;
+  }): Promise<void> {
+    const route = AGENT_ROUTES.tenantLogs;
+    const response = await this.#fetch(`${this.#baseUrl}${AGENT_API_PREFIX}${route}`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${sessionToken}`,
+        'content-type': TENANT_LOG_CONTENT_TYPE,
+        [PROTOCOL_VERSION_HEADER]: String(PROTOCOL_VERSION),
+      },
+      body,
+      signal,
+    });
+    if (!response.ok) {
+      throw new ControlPlaneError({ status: response.status, route, body: await response.text() });
+    }
   }
 
   async #post({

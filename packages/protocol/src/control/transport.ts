@@ -23,13 +23,21 @@ export const PROTOCOL_VERSION_HEADER = 'x-nibrun-protocol-version';
 // over the private network instead.
 export const AGENT_API_PREFIX = '/internal/agent';
 
-// Every route is a POST carrying JSON, including the two that read: a request body keeps the
-// protocol to exactly one wire format and one validation path rather than adding query-string
-// coercion at the only edge that would need it.
+// Every route is an outbound POST. The control messages carry one JSON document, including the
+// two that read: a request body keeps them to exactly one wire format and one validation path
+// rather than adding query-string coercion at the only edge that would need it. tenantLogs carries
+// an NDJSON stream instead, on its own request, so output backpressure can never delay desired
+// state.
+//
+// It is also the one route whose response must not begin until the request body ends. The agent
+// holds it open for as long as it has a host to report for, and answering on headers instead ends
+// a stream the agent believes succeeded — which it would reconnect at the retry floor, forever,
+// without ever calling it a failure.
 export const AGENT_ROUTES = {
   session: '/session',
   desiredState: '/desired-state',
   reportedState: '/reported-state',
+  tenantLogs: '/tenant-logs',
 } as const;
 
 /**
