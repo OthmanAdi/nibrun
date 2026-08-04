@@ -1,193 +1,137 @@
 import type { TenantLogEvent } from '@repo/protocol';
+import { Chunk, Deferred, Effect, Option, Queue, Ref, Stream } from 'effect';
 
-const NEWLINE = new TextEncoder().encode('\n');
+export const MAX_BUFFERED_BYTES = 8_388_608;
 
-type WaitingReader = {
-  token: symbol;
-  resolve: (chunk: Uint8Array | undefined) => void;
-};
+/**
+ * How much one upload may carry before it ends and asks to be confirmed.
+ *
+ * What a request has taken is held here until the control plane answers, so this is the memory a
+ * failure is allowed to be worth — small beside the buffer above, and large beside anything a
+ * tenant produces between two answers. A quiet host never reaches it and cycles on time instead.
+ */
+export const MAX_IN_FLIGHT_BYTES = 1_048_576;
 
-export class TenantLogQueue {
-  readonly #maxBytes: number;
-  readonly #maxInFlightBytes: number;
-  readonly #encoder = new TextEncoder();
-  #chunks: Uint8Array[] = [];
-  #inFlight: Uint8Array[] = [];
-  #inFlightBytes = 0;
-  #retainedBytes = 0;
-  #waiting: WaitingReader | undefined;
-  #activeToken: symbol | undefined;
-  #endingStream = false;
-  #closed = false;
+const ENCODER = new TextEncoder();
+const NEWLINE = ENCODER.encode('\n');
 
-  constructor({ maxBytes, maxInFlightBytes }: { maxBytes: number; maxInFlightBytes: number }) {
-    this.#maxBytes = maxBytes;
-    this.#maxInFlightBytes = maxInFlightBytes;
-  }
+export class TenantLogQueue extends Effect.Service<TenantLogQueue>()('TenantLogQueue', {
+  effect: Effect.gen(function* () {
+    const chunks = yield* Queue.unbounded<Uint8Array>();
+    /**
+     * What an upload took and never had confirmed, waiting for the upload that replaces it.
+     *
+     * A queue of its own rather than a way back into `chunks`, because an Effect queue only grows
+     * at the back and these are older than everything published since. A body drains this to
+     * exhaustion before it looks at anything newer, which is the same order without the surgery.
+     */
+    const owed = yield* Queue.unbounded<Uint8Array>();
+    const inFlight = yield* Queue.unbounded<Uint8Array>();
+    const inFlightBytes = yield* Ref.make(0);
+    const bufferedBytes = yield* Ref.make(0);
 
-  push(event: TenantLogEvent): boolean {
-    if (this.#closed) {
-      return false;
-    }
-    const json = this.#encoder.encode(JSON.stringify(event));
-    const chunk = new Uint8Array(json.byteLength + NEWLINE.byteLength);
-    chunk.set(json);
-    chunk.set(NEWLINE, json.byteLength);
-    return this.#offer(chunk);
-  }
+    const offer = (chunk: Uint8Array) =>
+      Effect.gen(function* () {
+        // In-flight bytes are counted here too. A copy held for an unconfirmed request is the same
+        // memory as an event nobody has sent yet, so it answers to the same limit — a budget that
+        // only counted what had not been sent yet would be a budget for half the bytes.
+        const accepted = yield* Ref.modify(bufferedBytes, (bytes) =>
+          bytes + chunk.byteLength > MAX_BUFFERED_BYTES
+            ? ([false, bytes] as const)
+            : ([true, bytes + chunk.byteLength] as const),
+        );
+        if (accepted) {
+          yield* Queue.offer(chunks, chunk);
+        }
+        return accepted;
+      });
 
-  /**
-   * An empty line: NDJSON framing carrying no event, which the control plane skips.
-   *
-   * A host whose apps are quiet sends nothing for as long as they stay quiet, and every timeout
-   * between here and the control plane reads that silence as a dead connection. This is what
-   * makes the request outlive the tenant's own talkativeness.
-   */
-  keepalive(): boolean {
-    if (this.#closed) {
-      return false;
-    }
-    return this.#offer(NEWLINE);
-  }
+    const hold = (chunk: Uint8Array) =>
+      Effect.andThen(
+        Queue.offer(inFlight, chunk),
+        Ref.update(inFlightBytes, (bytes) => bytes + chunk.byteLength),
+      );
 
-  /**
-   * End the current request's body once it has taken everything queued, leaving the queue itself
-   * open for the request that replaces it.
-   *
-   * An upload cannot be cut without losing whatever the request had already taken, and HTTP has
-   * no per-chunk acknowledgement to work out how much that was. A drained queue is the one
-   * boundary where the agent knows exactly what the control plane received, so it is the only
-   * place a stream can end for free.
-   */
-  endStream(): void {
-    if (this.#waiting) {
-      const waiting = this.#waiting;
-      this.#waiting = undefined;
-      waiting.resolve(undefined);
-      return;
-    }
-    this.#endingStream = true;
-  }
+    /** One step, because a chunk out of a queue and not yet held is a chunk nobody is holding. */
+    const pollAndHold = (source: Queue.Queue<Uint8Array>) =>
+      Effect.uninterruptible(
+        Effect.gen(function* () {
+          const taken = yield* Queue.poll(source);
+          if (Option.isSome(taken)) {
+            yield* hold(taken.value);
+          }
+          return taken;
+        }),
+      );
 
-  /**
-   * The control plane answered, so what this request carried is somewhere other than here and the
-   * copies held for it can go.
-   *
-   * Only ever called for a request that ran long enough to have been read. A reply that arrives
-   * too quickly to have consumed a body is the one success that proves nothing, and keeping the
-   * copies through it costs a duplicate where believing it would cost the events.
-   */
-  acknowledge(): void {
-    this.#retainedBytes -= this.#inFlightBytes;
-    this.#inFlight = [];
-    this.#inFlightBytes = 0;
-  }
-
-  #offer(chunk: Uint8Array): boolean {
-    // In-flight bytes are counted here too. They are copies this host is holding until they are
-    // confirmed, which is the same memory as a queued event and has to answer to the same limit —
-    // a budget that only counted what had not been sent yet would be a budget for half the bytes.
-    if (this.#retainedBytes + chunk.byteLength > this.#maxBytes) {
-      return false;
-    }
-    this.#retainedBytes += chunk.byteLength;
-    if (this.#waiting) {
-      const waiting = this.#waiting;
-      this.#waiting = undefined;
-      if (this.#inFlightBytes >= this.#maxInFlightBytes) {
-        this.#chunks.push(chunk);
-        waiting.resolve(undefined);
-        return true;
+    const recover = Effect.gen(function* () {
+      const unconfirmed = yield* Queue.takeAll(inFlight);
+      if (Chunk.isEmpty(unconfirmed)) {
+        return;
       }
-      this.#holdInFlight(chunk);
-      waiting.resolve(chunk);
-      return true;
-    }
-    this.#chunks.push(chunk);
-    return true;
-  }
-
-  readable(): ReadableStream<Uint8Array> {
-    const token = Symbol('tenant log reader');
-    // Whatever the request this replaces had taken was never confirmed, so it is still owed. A
-    // new stream superseding an old one is exactly the case where those bytes have to go back.
-    this.#recover();
-    // A control plane that answers before the body ends completes the fetch without cancelling
-    // the stream it was reading, so the request this one replaces can still be holding a pending
-    // read. Handing the next event to that reader would deliver it nowhere.
-    this.#waiting = undefined;
-    this.#activeToken = token;
-    this.#endingStream = false;
-    let active = true;
-    return new ReadableStream<Uint8Array>({
-      pull: async (controller) => {
-        const chunk = await this.#take(token);
-        if (!active) {
-          return;
-        }
-        if (chunk) {
-          controller.enqueue(chunk);
-        } else {
-          controller.close();
-        }
-      },
-      cancel: () => {
-        active = false;
-        this.#cancel(token);
-      },
+      yield* Ref.set(inFlightBytes, 0);
+      const stillOwed = yield* Queue.takeAll(owed);
+      yield* Queue.offerAll(owed, Chunk.appendAll(unconfirmed, stillOwed));
     });
-  }
 
-  close(): void {
-    this.#closed = true;
-    this.#waiting?.resolve(undefined);
-    this.#waiting = undefined;
-  }
-
-  #holdInFlight(chunk: Uint8Array): void {
-    this.#inFlight.push(chunk);
-    this.#inFlightBytes += chunk.byteLength;
-  }
-
-  #recover(): void {
-    if (this.#inFlightBytes === 0) {
-      return;
-    }
-    this.#chunks = this.#inFlight.concat(this.#chunks);
-    this.#inFlight = [];
-    this.#inFlightBytes = 0;
-  }
-
-  #take(token: symbol): Promise<Uint8Array | undefined> {
-    // Checked before the queue is touched: a superseded reader whose pull lands late would
-    // otherwise take a chunk into a request nothing is sending any more.
-    if (token !== this.#activeToken) {
-      return Promise.resolve(undefined);
-    }
-    // A window ends on what it is carrying as well as on how long it has been open. Held copies
-    // are only released by an answer, so how much one request may take is how much this host is
-    // willing to hold — and a talkative tenant reaches that long before thirty seconds.
-    if (this.#inFlightBytes >= this.#maxInFlightBytes) {
-      return Promise.resolve(undefined);
-    }
-    const chunk = this.#chunks.shift();
-    if (chunk) {
-      this.#holdInFlight(chunk);
-      return Promise.resolve(chunk);
-    }
-    if (this.#closed || this.#endingStream) {
-      return Promise.resolve(undefined);
-    }
-    return new Promise((resolve) => {
-      this.#waiting = { token, resolve };
+    /**
+     * The control plane answered, so what that request carried is somewhere other than here and
+     * the copies held for it can go.
+     *
+     * Only ever reached by a request that ran long enough to have been read. A reply that arrives
+     * too quickly to have consumed a body is the one success that proves nothing, and keeping the
+     * copies through it costs a duplicate where believing it would cost the events.
+     */
+    const acknowledge = Effect.gen(function* () {
+      yield* Queue.takeAll(inFlight);
+      const released = yield* Ref.getAndSet(inFlightBytes, 0);
+      yield* Ref.update(bufferedBytes, (bytes) => bytes - released);
     });
-  }
 
-  #cancel(token: symbol): void {
-    if (this.#waiting?.token !== token) {
-      return;
-    }
-    this.#waiting.resolve(undefined);
-    this.#waiting = undefined;
-  }
-}
+    const endOfBody = Effect.fail(Option.none<never>());
+
+    const nextChunk = (ending: Deferred.Deferred<void>) =>
+      Effect.gen(function* () {
+        // A window ends on what it is carrying as well as on how long it has been open. An answer
+        // is the only thing that frees a copy, so how much one request may take is how much this
+        // host is willing to hold — and a talkative tenant reaches that long before thirty seconds.
+        if ((yield* Ref.get(inFlightBytes)) >= MAX_IN_FLIGHT_BYTES) {
+          return yield* endOfBody;
+        }
+        const owedBack = yield* pollAndHold(owed);
+        if (Option.isSome(owedBack)) {
+          return owedBack.value;
+        }
+        const ready = yield* pollAndHold(chunks);
+        if (Option.isSome(ready)) {
+          return ready.value;
+        }
+        if (yield* Deferred.isDone(ending)) {
+          return yield* endOfBody;
+        }
+        return yield* Effect.raceFirst(
+          // Interruptible only while waiting: losing the race must not drop an unheld chunk.
+          Effect.uninterruptibleMask((restore) => Effect.tap(restore(Queue.take(chunks)), hold)),
+          Effect.andThen(Deferred.await(ending), endOfBody),
+        );
+      });
+
+    /**
+     * The body of one upload, which ends at a drained queue and nowhere else: an upload cut
+     * mid-flight loses whatever the request had already taken, and HTTP cannot say how much.
+     *
+     * Opening one takes back what the upload it supersedes was carrying, ahead of anything
+     * published since. Never confirmed is still owed.
+     */
+    const body = (ending: Deferred.Deferred<void>) =>
+      Effect.as(recover, Stream.repeatEffectOption(nextChunk(ending)));
+
+    return {
+      publish: (event: TenantLogEvent) => offer(ENCODER.encode(`${JSON.stringify(event)}\n`)),
+      /** An empty NDJSON line: what keeps a quiet host's request from reading as a dead one. */
+      keepalive: offer(NEWLINE),
+      acknowledge,
+      body,
+    };
+  }),
+}) {}

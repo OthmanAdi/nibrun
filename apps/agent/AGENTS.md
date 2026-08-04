@@ -2,17 +2,37 @@
 
 The nibrun host agent. One compiled binary per app host: it opens a session with the control
 plane, long-polls for desired state, converges the host onto it, and reports what it observes. It
-is never sent a command. Every decision behind that is commented at the definition it applies to —
-read `reconcile/`, `volumes/topology.ts` and `network/allocator.ts` first.
+is never sent a command. Read `reconcile/`, `volumes/topology.ts` and `network/slot.ts` first.
+
+**Written in Effect.** Every effectful path is an `Effect` with a typed error channel; anything a
+test needs to substitute is a service (`Context.Tag` or `Effect.Service`) wired in `index.ts` and
+nowhere else. State that used to be mutable class fields lives in a `Ref`. The four loops in
+`agent/` are fibers, and their retry cadence is a `Schedule` rather than a failure counter.
+Interruption is the shutdown path: `BunRuntime.runMain` cancels the fibers and scoped finalizers
+close the log sockets. Nothing stops a tenant VM, which is what keeps redeploying the agent free.
 
 **Everything the host does that Bun cannot do is a subprocess** (`systemctl`, `ip`, `nft`,
-`nbd-client`, `mkfs.ext4`, `mksquashfs`, `zerofs`) rather than a library. Bun's built-ins cover S3,
-hashing, process spawning and file I/O, so the binary stays small.
+`nbd-client`, `mkfs.ext4`, `mksquashfs`, `zerofs`) rather than a library, through the
+`CommandRunner` service over `@effect/platform`'s `Command`. Bun's own S3 client and hasher are
+still used directly, because `@effect/platform` has no equivalent.
+
+**Every failure is a `Data.TaggedError` that renders itself.** Its `get message()` is what a
+report carries to the control plane and from there to whoever is looking at a failed instance, so
+it reads as a sentence and names no value a tenant owns. Callers match on `_tag` — `catchTag`,
+`catchTags`, `tapErrorTag` — never `instanceof`; `describe`/`reportedMessage` in `lib/failure.ts`
+are the only formatters. A plain `Error` crossing in from `@repo/protocol` is tagged at the
+boundary in `lib/protocol.ts` so it can be matched like the rest.
+
+**Tests live in `tests/`, mirroring `src/`**, and everything they share is in `tests/support/`:
+fixtures, the recording `CommandRunner`, the scoped `Bun.serve` harness, and `provided(layer)` —
+the one `Effect.runPromise` a test performs, and the scope its temp directories, servers and
+sockets are released by. `bun test` rules out `@effect/vitest`, so there is no `it.effect`;
+`TestClock` comes from `effect` core when a test needs virtual time.
 
 The control plane is reached through `@repo/api-client/internal`, and every call goes through it,
 so a route the api does not mount is a compile error. What it cannot describe is the bytes that
-come back, so `control/client.ts` still validates every response against `@repo/protocol` before
-believing it.
+come back, so `control/client.ts` still validates every response against `@repo/protocol` —
+TypeBox, not `effect/Schema`, because the schemas are shared with the api.
 
 ## What the host must provide, and does not yet
 
@@ -44,3 +64,5 @@ credentials, and the gap is wider than the test count suggests.
 - **S3 and IMDS** are tested against stubs; nothing has spoken to AWS.
 - The Firecracker drive-on-`/dev/nbdN` path is upstream-undocumented — mechanically sound, never
   run here.
+- **No test builds the full layer graph**, so a service wired wrong in `index.ts` is caught by
+  `tsc` and by starting the binary, not by `bun test`.
