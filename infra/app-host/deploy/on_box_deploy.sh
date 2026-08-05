@@ -335,6 +335,14 @@ for unit in systemd/*.service; do
   cp "$unit" "/etc/systemd/system/$(basename "$unit").new"
   changed_file "/etc/systemd/system/$(basename "$unit")" && units_changed=1 || true
 done
+
+# The uploader's unit belongs to systemd rather than to us, so what we have to
+# say about it goes in a drop-in beside it instead of replacing it.
+journal_upload_dropin=/etc/systemd/system/systemd-journal-upload.service.d
+mkdir -p "$journal_upload_dropin"
+cp systemd/systemd-journal-upload.service.d/nibrun.conf "$journal_upload_dropin/nibrun.conf.new"
+changed_file "$journal_upload_dropin/nibrun.conf" && units_changed=1 || true
+
 if [ "$units_changed" = "1" ]; then
   systemctl daemon-reload
 fi
