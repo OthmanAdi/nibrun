@@ -1,0 +1,42 @@
+#!/usr/bin/env bun
+import { createCli } from '@parshjs/core';
+import { createEnvContext } from '@parshjs/env';
+import { z } from 'zod';
+import { commandTree } from '#command-tree.gen.ts';
+import { createApi } from '#lib/api.ts';
+import { CancelledError } from '#lib/errors.ts';
+
+const PROGRAM_NAME = 'nib';
+
+const cli = createCli({
+  programName: PROGRAM_NAME,
+  programDescription: 'Run a binary on nibrun.',
+  tree: commandTree,
+  context: () => {
+    const env = createEnvContext({
+      vars: {
+        NIBRUN_API_URL: { schema: z.url(), default: 'http://localhost:3000' },
+        NIBRUN_COOKIE_TOKEN: { schema: z.string(), default: '' },
+      },
+    });
+    return {
+      api: createApi({ baseUrl: env.NIBRUN_API_URL, cookieToken: env.NIBRUN_COOKIE_TOKEN }),
+    };
+  },
+  errors: { CANCELLED: CancelledError },
+  onError: ({ code, exit }) => (code === 'CANCELLED' ? exit(1) : undefined),
+});
+
+declare module '@parshjs/core' {
+  interface Register {
+    cli: typeof cli;
+  }
+}
+
+try {
+  await cli.main();
+} catch (failure) {
+  const message = failure instanceof Error ? failure.message : String(failure);
+  process.stderr.write(`${PROGRAM_NAME}: ${message}\n`);
+  process.exit(1);
+}
