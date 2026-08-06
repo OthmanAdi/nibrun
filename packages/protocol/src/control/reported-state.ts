@@ -3,11 +3,11 @@ import { CheckpointStateSchema } from '#domain/checkpoint.ts';
 import { ExportStateSchema } from '#domain/export.ts';
 import { HostCapacitySchema, HostStateSchema, HostVersionsSchema } from '#domain/host.ts';
 import {
+  AppIdSchema,
   CheckpointIdSchema,
   DeploymentIdSchema,
   ExportIdSchema,
   HostIdSchema,
-  InstanceIdSchema,
   VolumeIdSchema,
 } from '#domain/identifiers.ts';
 import { InstanceStateSchema } from '#domain/instance.ts';
@@ -29,7 +29,7 @@ const MAX_DEVICE_PATH_LENGTH = 256;
 const MessageSchema = Type.String({ maxLength: MAX_MESSAGE_LENGTH });
 
 export const ReportedInstanceSchema = Type.Object({
-  instanceId: InstanceIdSchema,
+  appId: AppIdSchema,
   deploymentId: DeploymentIdSchema,
   state: InstanceStateSchema,
   // Reported even though routing is local to the host: the control plane needs it to debug a
@@ -86,12 +86,12 @@ export type ReportedExport = typeof ReportedExportSchema.static;
  * arranged. On startup the agent enumerates what is really running before it reports, so a
  * restarted agent converges against reality rather than assuming it began from nothing.
  *
- * `observedGeneration` is the desired-state generation this report reflects, which is how the
- * control plane tells "converged" from "has not read the new state yet".
+ * Converged is read from the contents rather than from a version number the host echoes: the
+ * deployment an instance names is what the control plane was waiting to see, and it says which
+ * release arrived rather than only that some state did.
  */
 export const HostReportedStateSchema = Type.Object({
   hostId: HostIdSchema,
-  observedGeneration: Type.Integer({ minimum: 0 }),
   reportedAt: TimestampSchema,
   state: HostStateSchema,
   capacity: HostCapacitySchema,

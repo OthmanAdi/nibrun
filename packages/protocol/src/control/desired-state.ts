@@ -6,7 +6,6 @@ import {
   DeploymentIdSchema,
   ExportIdSchema,
   HostIdSchema,
-  InstanceIdSchema,
   VolumeIdSchema,
 } from '#domain/identifiers.ts';
 import { stringEnum } from '#lib/string-enum.ts';
@@ -48,7 +47,6 @@ export const DesiredArtifactSchema = Type.Object({
 export type DesiredArtifact = typeof DesiredArtifactSchema.static;
 
 export const DesiredInstanceSchema = Type.Object({
-  instanceId: InstanceIdSchema,
   appId: AppIdSchema,
   deploymentId: DeploymentIdSchema,
   volumeId: VolumeIdSchema,
@@ -116,12 +114,12 @@ export type DesiredExport = typeof DesiredExportSchema.static;
  * removing one is only ever expressed by an explicit `absent`, never implied by a list
  * shrinking. A truncated response must not be able to delete a filesystem.
  *
- * `generation` increases whenever anything below it changes, and is what the agent long-polls
- * against and echoes back as `observedGeneration`.
+ * The whole of it every time, and no version number beside it. Whether this differs from the
+ * last one is a question the host answers by looking, which is cheaper than the control plane
+ * reading everything here to decide whether to send it.
  */
 export const HostDesiredStateSchema = Type.Object({
   hostId: HostIdSchema,
-  generation: Type.Integer({ minimum: 0 }),
   volumes: Type.Array(DesiredVolumeSchema),
   instances: Type.Array(DesiredInstanceSchema),
   checkpoints: Type.Array(DesiredCheckpointSchema),

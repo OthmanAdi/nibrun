@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  type AppId,
   DEFAULT_GUEST_PORT,
   DEFAULT_HEALTH_CHECK,
   DEFAULT_INSTANCE_RESOURCES,
@@ -7,7 +8,6 @@ import {
   type Hostname,
   type HostPort,
   HostReportedStateSchema,
-  type InstanceId,
   type InstanceState,
   type Ipv4Address,
   isValidMessage,
@@ -24,14 +24,12 @@ import {
   EXPORT_ID,
   FIRST_HOST_PORT,
   HOST_ID,
-  INSTANCE_ID,
   OBSERVED_AT,
   VOLUME_ID,
   VOLUME_SIZE_BYTES,
 } from '#tests/support/fixtures.ts';
 
 const DIGEST_HEX_LENGTH = 64;
-const OBSERVED_GENERATION = 7;
 const BUNDLE_SIZE_BYTES = 1_782_579;
 const HOST_VCPUS = 4;
 const HOST_MEMORY_MIB = 8_192;
@@ -51,7 +49,6 @@ const DEFAULT_INSTANCE_RESOURCES_AS_CAPACITY = {
 
 function record(overrides: Partial<InstanceRecord> = {}): InstanceRecord {
   return {
-    instanceId: INSTANCE_ID,
     appId: APP_ID,
     deploymentId: DEPLOYMENT_ID,
     volumeId: VOLUME_ID,
@@ -94,7 +91,6 @@ describe('the assembled report satisfies the protocol', () => {
   test('a full report validates against the schema it will be sent as', () => {
     const report = buildReportedState({
       hostId: HOST_ID,
-      observedGeneration: OBSERVED_GENERATION,
       reportedAt: OBSERVED_AT,
       state: 'ready',
       capacity: HOST_CAPACITY,
@@ -124,8 +120,8 @@ describe('the same records render the routing layer', () => {
   test('only instances whose tenant answered are routable', () => {
     const records = [
       record(),
-      record({ instanceId: 'inst-2' as InstanceId, state: 'starting' }),
-      record({ instanceId: 'inst-3' as InstanceId, state: 'unhealthy' }),
+      record({ appId: 'inst-2' as AppId, state: 'starting' }),
+      record({ appId: 'inst-3' as AppId, state: 'unhealthy' }),
     ];
     expect(renderableRoutes(records)).toEqual([
       {

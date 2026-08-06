@@ -9,7 +9,8 @@ import {
   type Timestamp,
 } from '@repo/protocol';
 import { UnauthorizedError } from '#lib/errors.ts';
-import type { AgentRepository } from '#repositories/agent.repository.ts';
+import type { AgentRepositoryContract } from '#repositories/agent.repository.ts';
+import type { DeploymentsService } from '#services/deployments.service.ts';
 import { Service } from '#services/service.ts';
 
 const MS_PER_SECOND = 1000;
@@ -17,11 +18,19 @@ const SECONDS_PER_HOUR = 60 * 60;
 const SESSION_LIFETIME_MS = SECONDS_PER_HOUR * MS_PER_SECOND;
 
 export class AgentService extends Service {
-  private readonly agentRepo: AgentRepository;
+  private readonly agentRepo: AgentRepositoryContract;
+  private readonly deploymentsService: DeploymentsService;
 
-  constructor({ agentRepo }: { agentRepo: AgentRepository }) {
+  constructor({
+    agentRepo,
+    deploymentsService,
+  }: {
+    agentRepo: AgentRepositoryContract;
+    deploymentsService: DeploymentsService;
+  }) {
     super();
     this.agentRepo = agentRepo;
+    this.deploymentsService = deploymentsService;
   }
 
   /**
@@ -69,14 +78,18 @@ export class AgentService extends Service {
     return this.agentRepo.desiredState({ hostId });
   }
 
+  /**
+   * Only what the report says about deployments is kept. Capacity, versions and the host's own
+   * state have no table to land in while hosts are not modelled, and holding them in this process
+   * would be a second source of truth to unpick once they do.
+   */
   async acceptReport({ reported }: { reported: HostReportedState }): Promise<void> {
     this.logger.info('host reported', {
       hostId: reported.hostId,
       state: reported.state,
-      observedGeneration: reported.observedGeneration,
       instances: reported.instances.length,
       volumes: reported.volumes.length,
     });
-    await this.agentRepo.saveReportedState({ reported });
+    await this.deploymentsService.applyHostReport({ reported });
   }
 }

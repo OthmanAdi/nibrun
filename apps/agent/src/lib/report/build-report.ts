@@ -15,7 +15,7 @@ import type { InstanceRecord } from '#lib/report/instance-record.ts';
 /** Optional fields are omitted rather than sent empty: absent is the one convention for unknown. */
 export function toReportedInstance(record: InstanceRecord): ReportedInstance {
   return {
-    instanceId: record.instanceId,
+    appId: record.appId,
     deploymentId: record.deploymentId,
     state: record.state,
     hostPort: record.hostPort,
@@ -31,7 +31,6 @@ export function toReportedInstance(record: InstanceRecord): ReportedInstance {
 
 export function buildReportedState({
   hostId,
-  observedGeneration,
   reportedAt,
   state,
   capacity,
@@ -43,7 +42,6 @@ export function buildReportedState({
   exports,
 }: {
   hostId: HostId;
-  observedGeneration: number;
   reportedAt: Timestamp;
   state: HostState;
   capacity: HostCapacity;
@@ -56,7 +54,6 @@ export function buildReportedState({
 }): HostReportedState {
   return {
     hostId,
-    observedGeneration,
     reportedAt,
     state,
     capacity,

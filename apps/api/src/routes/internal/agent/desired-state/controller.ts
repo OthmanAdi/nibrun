@@ -17,14 +17,11 @@ export const AgentDesiredStateController = new Elysia()
   .use(AgentServicePlugin)
   .post(
     agentRoutePath(AGENT_ROUTES.desiredState),
-    async ({ agentService, body, headers }) => {
+    async ({ agentService, headers }) => {
       assertProtocolVersion(headers);
       const hostId = await agentService.hostForSession({ sessionToken: sessionTokenFrom(headers) });
-      const state = await agentService.desiredState({ hostId });
 
-      return body.knownGeneration === state.generation
-        ? { result: 'unchanged' as const, generation: state.generation }
-        : { result: 'changed' as const, state };
+      return await agentService.desiredState({ hostId });
     },
     {
       body: DesiredStateRequestSchema,

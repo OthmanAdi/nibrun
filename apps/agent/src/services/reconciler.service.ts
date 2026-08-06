@@ -37,7 +37,7 @@ export class Reconciler extends Effect.Service<Reconciler>()('Reconciler', {
       );
       yield* AgentState.modify((current) => ({
         ...current,
-        records: new Map(instances.map((record) => [record.instanceId, record])),
+        records: new Map(instances.map((record) => [record.appId, record])),
         exportReports: new Map(exports.map((report) => [report.exportId, report])),
       }));
       yield* Effect.logInfo('agent state loaded').pipe(
@@ -55,18 +55,18 @@ export class Reconciler extends Effect.Service<Reconciler>()('Reconciler', {
      */
     const observe = Effect.gen(function* () {
       const current = yield* AgentState.snapshot;
-      const unitIds = yield* Systemd.listInstanceIds.pipe(Effect.orElseSucceed(() => []));
+      const unitIds = yield* Systemd.listAppIds.pipe(Effect.orElseSucceed(() => []));
       const ids = [...new Set([...unitIds, ...current.records.keys()])];
       const statuses = yield* Systemd.statuses(ids).pipe(
         Effect.orElseSucceed(() => new Map<(typeof ids)[number], typeof UNKNOWN_UNIT>()),
       );
 
       return {
-        instances: ids.map((instanceId) => {
-          const status = statuses.get(instanceId) ?? UNKNOWN_UNIT;
-          const record = current.records.get(instanceId);
+        instances: ids.map((appId) => {
+          const status = statuses.get(appId) ?? UNKNOWN_UNIT;
+          const record = current.records.get(appId);
           return {
-            instanceId,
+            appId,
             ...(record
               ? {
                   appId: record.appId,
@@ -118,7 +118,7 @@ export class Reconciler extends Effect.Service<Reconciler>()('Reconciler', {
         desired.instances,
         (wanted) =>
           AgentState.updateRecord({
-            instanceId: wanted.instanceId,
+            appId: wanted.appId,
             change: (record) => ({
               ...record,
               hostnames: wanted.hostnames,
@@ -136,21 +136,21 @@ export class Reconciler extends Effect.Service<Reconciler>()('Reconciler', {
         plan.instances,
         (action) => {
           if (action.action === 'stop') {
-            return stopInstance({ instanceId: action.instanceId, reason: action.reason });
+            return stopInstance({ appId: action.appId, reason: action.reason });
           }
           if (action.action === 'replace') {
             return stopInstance({
-              instanceId: action.desired.instanceId,
+              appId: action.desired.appId,
               reason: 'superseded',
             }).pipe(
-              Effect.andThen(vms.discard(action.desired.instanceId)),
-              Effect.andThen(AgentState.dropRecord(action.desired.instanceId)),
+              Effect.andThen(vms.discard(action.desired.appId)),
+              Effect.andThen(AgentState.dropRecord(action.desired.appId)),
             );
           }
           if (action.action === 'forget') {
             return vms
-              .discard(action.instanceId)
-              .pipe(Effect.andThen(AgentState.dropRecord(action.instanceId)));
+              .discard(action.appId)
+              .pipe(Effect.andThen(AgentState.dropRecord(action.appId)));
           }
           return Effect.void;
         },
@@ -185,7 +185,6 @@ export class Reconciler extends Effect.Service<Reconciler>()('Reconciler', {
       });
 
     const reconcile = Effect.fn('Reconciler.reconcile')(function* (desired: HostDesiredState) {
-      yield* Effect.annotateCurrentSpan({ generation: desired.generation });
       const observed = yield* observe;
       const plan = planReconcile({ desired, observed });
       yield* AgentState.modify((current) => ({
@@ -210,11 +209,7 @@ export class Reconciler extends Effect.Service<Reconciler>()('Reconciler', {
       yield* applyRoutes.pipe(Effect.withSpan('reconcile.routes'));
       yield* persist.pipe(Effect.withSpan('reconcile.persist'));
 
-      yield* AgentState.modify((current) => ({
-        ...current,
-        observedGeneration: desired.generation,
-        converged: true,
-      }));
+      yield* AgentState.modify((current) => ({ ...current, converged: true }));
     });
 
     return {
