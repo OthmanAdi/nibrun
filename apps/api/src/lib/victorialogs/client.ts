@@ -1,6 +1,6 @@
 import { type LogRow, lines, toRow } from '#lib/victorialogs/parse.ts';
 
-const TAIL_PATH = '/select/logsql/tail';
+const QUERY_PATH = '/select/logsql/query';
 
 /** The store's own name for a query submitted in a body, which is where a filter this long belongs. */
 const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded';
@@ -18,7 +18,7 @@ export class VictoriaLogsError extends Error {
  * One endpoint of the store, holding the URL it resolves to and the one way of asking it.
  *
  * Subclassed per endpoint rather than switched on a path, so what a caller may ask for is what
- * the type offers: `tail.subscribe(…)` names the endpoint and what it does in the same phrase,
+ * the type offers: `query.run(…)` names the endpoint and what it does in the same phrase,
  * and an endpoint added later inherits the base URL rather than re-deriving it.
  */
 abstract class VictoriaLogsEndpoint {
@@ -28,18 +28,11 @@ abstract class VictoriaLogsEndpoint {
     this.url = new URL(path, baseUrl).toString();
   }
 
-  protected async post({
-    params,
-    signal,
-  }: {
-    params: Record<string, string>;
-    signal: AbortSignal;
-  }): Promise<Response> {
+  protected async post({ params }: { params: Record<string, string> }): Promise<Response> {
     const response = await fetch(this.url, {
       method: 'POST',
       headers: { 'content-type': FORM_CONTENT_TYPE },
       body: new URLSearchParams(params),
-      signal,
     });
     if (!response.ok) {
       throw new VictoriaLogsError({
@@ -51,36 +44,39 @@ abstract class VictoriaLogsEndpoint {
   }
 }
 
-export type TailRequest = {
-  /** LogsQL. This endpoint refuses `sort`, `limit`, `offset` and the stats pipes. */
+export type QueryRequest = {
+  /** LogsQL. The window is `start`'s to say, so this carries no `_time` filter of its own. */
   query: string;
-  /** How much history precedes the follow, as a LogsQL duration such as `5m`. */
-  startOffset: string;
-  signal: AbortSignal;
+  /** Inclusive lower bound of the window, as an ISO 8601 instant. */
+  start: string;
 };
 
 /**
- * Live tailing, rather than a query run over and over: the store follows the stream itself and
- * holds the response open, so nothing here keeps a cursor. It delays new records briefly to let
- * late arrivals land in order, which is why a tail runs a few seconds behind rather than a poll
- * away.
+ * One window of the store, read and finished with.
+ *
+ * An ordinary request, and nothing here can cancel one. The endpoint that follows a stream instead
+ * exists and would need that — it is held open for as long as someone is reading, so abandoning
+ * one without saying so leaks it. A window is bounded by its own `limit` and answers in the time a
+ * query takes, which is short enough that a reader who has left costs a reply nobody reads.
  */
-export class VictoriaLogsTail extends VictoriaLogsEndpoint {
+export class VictoriaLogsQuery extends VictoriaLogsEndpoint {
   constructor(baseUrl: URL) {
-    super({ baseUrl, path: TAIL_PATH });
+    super({ baseUrl, path: QUERY_PATH });
   }
 
-  async *subscribe({ query, startOffset, signal }: TailRequest): AsyncGenerator<LogRow> {
-    const response = await this.post({ params: { query, start_offset: startOffset }, signal });
+  async run({ query, start }: QueryRequest): Promise<LogRow[]> {
+    const response = await this.post({ params: { query, start } });
     if (!response.body) {
-      return;
+      return [];
     }
+    const rows: LogRow[] = [];
     for await (const line of lines(response.body)) {
       const row = toRow(line);
       if (row) {
-        yield row;
+        rows.push(row);
       }
     }
+    return rows;
   }
 }
 
@@ -92,9 +88,9 @@ export class VictoriaLogsTail extends VictoriaLogsEndpoint {
  * because deciding who may see an app is its question to answer.
  */
 export class VictoriaLogsClient {
-  readonly tail: VictoriaLogsTail;
+  readonly query: VictoriaLogsQuery;
 
   constructor(baseUrl: URL) {
-    this.tail = new VictoriaLogsTail(baseUrl);
+    this.query = new VictoriaLogsQuery(baseUrl);
   }
 }
