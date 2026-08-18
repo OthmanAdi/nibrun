@@ -1,10 +1,14 @@
+import type { TypedSQL } from '@ilbertt/bun-sqlgen';
 import type { HostDesiredState, HostId, SecretString } from '@repo/protocol';
+import type { Queries } from '#db/queries.gen.d.ts';
 import {
+  environmentByDeployment,
   hostnamesByApp,
   toDesiredInstance,
   toDesiredVolume,
 } from '#lib/deployments/desired-state.ts';
 import { toDesiredExport } from '#lib/exports/desired-state.ts';
+import type { TenantSecretsKey } from '#lib/tenant-secrets.ts';
 import { Repository } from '#repositories/repository.ts';
 
 export abstract class AgentRepositoryContract {
@@ -15,6 +19,12 @@ export abstract class AgentRepositoryContract {
 
 export class AgentRepository extends Repository implements AgentRepositoryContract {
   readonly #hostBySession = new Map<string, HostId>();
+  readonly #secretsKey: TenantSecretsKey;
+
+  constructor({ sql, secretsKey }: { sql: TypedSQL<Queries>; secretsKey: TenantSecretsKey }) {
+    super(sql);
+    this.#secretsKey = secretsKey;
+  }
 
   saveSession({
     sessionToken,
@@ -52,7 +62,7 @@ export class AgentRepository extends Repository implements AgentRepositoryContra
              health_check_grace_period_ms, health_check_healthy_threshold,
              health_check_unhealthy_threshold,
              restart_max_restarts, restart_initial_backoff_ms, restart_max_backoff_ms,
-             restart_backoff_factor, restart_reset_after_ms
+             restart_backoff_factor, restart_reset_after_ms, config_id
       FROM nibrun.desired_deployments
     `;
     const volumes = await this.sql.SelectDesiredVolumes`
@@ -61,6 +71,11 @@ export class AgentRepository extends Repository implements AgentRepositoryContra
     const hostnames = hostnamesByApp(
       await this.sql.SelectDesiredHostnames`
         SELECT app_id, hostname, kind FROM nibrun.desired_hostnames
+      `,
+    );
+    const environments = environmentByDeployment(
+      await this.sql.SelectDesiredEnvironment`
+        SELECT deployment_id, name, value FROM nibrun.desired_environment
       `,
     );
     const exports = await this.sql.SelectDesiredExports`
@@ -76,7 +91,9 @@ export class AgentRepository extends Repository implements AgentRepositoryContra
     return {
       hostId,
       volumes: volumes.map(toDesiredVolume),
-      instances: deployments.map((row) => toDesiredInstance({ row, hostnames })),
+      instances: deployments.map((row) =>
+        toDesiredInstance({ row, hostnames, environments, secretsKey: this.#secretsKey }),
+      ),
       checkpoints: [],
       exports: exports.map(toDesiredExport),
     };

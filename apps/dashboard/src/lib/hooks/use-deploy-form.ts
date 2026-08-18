@@ -1,4 +1,8 @@
-import type { UploadableBinary } from '@repo/app-operations';
+import {
+  InvalidEnvironmentError,
+  parseEnvironment,
+  type UploadableBinary,
+} from '@repo/app-operations';
 import { DEFAULT_GUEST_PORT, FilenameSchema, Value } from '@repo/protocol';
 import { type ReactFormExtendedApi, useForm } from '@tanstack/react-form';
 import { useApps } from '#lib/hooks/use-apps.ts';
@@ -11,6 +15,7 @@ export type DeployFormValues = {
   name: string;
   port: string | undefined;
   args: string | undefined;
+  environment: string | undefined;
 };
 
 export type DeployFormApi = ReactFormExtendedApi<
@@ -42,6 +47,7 @@ const UNTOUCHED: DeployFormValues = {
   name: '',
   port: undefined,
   args: undefined,
+  environment: undefined,
 };
 
 export function validateBinary({ value }: { value: File | undefined }): string | undefined {
@@ -57,6 +63,22 @@ export function validatePort({ value }: { value: string | undefined }): string |
   return value === undefined || Number.isInteger(Number(value))
     ? undefined
     : 'Ports are whole numbers.';
+}
+
+export function validateEnvironment({ value }: { value: string | undefined }): string | undefined {
+  try {
+    parseEnvironment(assignments(value ?? ''));
+    return undefined;
+  } catch (failure) {
+    return failure instanceof InvalidEnvironmentError ? failure.message : undefined;
+  }
+}
+
+function assignments(onePerLine: string): string[] {
+  return onePerLine
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 }
 
 export function useDeployForm({ appId }: { appId: string | undefined }): DeployFormState {
@@ -95,6 +117,7 @@ function asDeployRequest({
   replacing: AppSummary | undefined;
 }): DeployRequest | undefined {
   const binary = value.binary === undefined ? undefined : uploadableFrom(value.binary);
+  const entered = assignments(value.environment ?? '');
   const port = Number(value.port ?? replacing?.config.guestPort ?? DEFAULT_GUEST_PORT);
   if (binary === undefined || !Number.isInteger(port)) {
     return undefined;
@@ -103,6 +126,11 @@ function asDeployRequest({
   return {
     binary,
     args: tenantArguments(value.args ?? replacing?.config.args.join('\n') ?? ''),
+    // An empty box leaves the stored variables alone rather than clearing them: the form cannot
+    // show a value it is not allowed to read, so an owner who is shown nothing and sends nothing
+    // must not be taken to mean "remove them all". Removing one is done by listing the ones that
+    // stay, which is a deliberate act rather than an empty field.
+    ...(entered.length === 0 ? {} : { environment: parseEnvironment(entered) }),
     app: replacing?.slug,
     name: replacing === undefined ? value.name.trim() || undefined : undefined,
     port,

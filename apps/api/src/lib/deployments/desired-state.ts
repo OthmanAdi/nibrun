@@ -9,7 +9,13 @@ import {
   VolumeIdSchema,
 } from '@repo/protocol';
 import type { Queries } from '#db/queries.gen.d.ts';
-import { toAppConfig, VOLUME_SIZE_BYTES } from '#lib/app-config.ts';
+import { toRunConfig, VOLUME_SIZE_BYTES } from '#lib/app-config.ts';
+import {
+  openEnvironment,
+  type SealedEnvironment,
+  sealedFromStore,
+  type TenantSecretsKey,
+} from '#lib/tenant-secrets.ts';
 
 export type DesiredDeploymentRow = Queries['SelectDesiredDeployments'];
 
@@ -49,9 +55,13 @@ export function toDesiredVolume(row: DesiredVolumeRow): DesiredVolume {
 export function toDesiredInstance({
   row,
   hostnames,
+  environments,
+  secretsKey,
 }: {
   row: DesiredDeploymentRow;
   hostnames: Map<AppId, AppHostname[]>;
+  environments: Map<string, SealedEnvironment>;
+  secretsKey: TenantSecretsKey;
 }): DesiredInstance {
   return {
     appId: row.app_id,
@@ -64,9 +74,30 @@ export function toDesiredInstance({
       objectKey: row.object_key,
       filename: row.original_file_name,
     },
-    config: toDesiredConfig(row),
+    config: toDesiredConfig({
+      row,
+      sealed: environments.get(row.id) ?? {},
+      secretsKey,
+    }),
     hostnames: hostnames.get(row.app_id) ?? [],
   };
+}
+
+export type DesiredEnvironmentRow = Queries['SelectDesiredEnvironment'];
+
+/** Grouped the way hostnames are, for the same reason: one relation, many rows per instance. */
+export function environmentByDeployment(
+  rows: DesiredEnvironmentRow[],
+): Map<string, SealedEnvironment> {
+  const byDeployment = new Map<string, SealedEnvironment>();
+  for (const row of rows) {
+    // Written into the object already there rather than into a copy of it, so a deployment with
+    // many variables costs one pass and not one object per row.
+    const environment = byDeployment.get(row.deployment_id) ?? {};
+    environment[row.name] = sealedFromStore(row.value);
+    byDeployment.set(row.deployment_id, environment);
+  }
+  return byDeployment;
 }
 
 export function hostnamesByApp(rows: DesiredHostnameRow[]): Map<AppId, AppHostname[]> {
@@ -80,9 +111,20 @@ export function hostnamesByApp(rows: DesiredHostnameRow[]): Map<AppId, AppHostna
   return byApp;
 }
 
-// `environment` is empty because secrets storage is deferred, and `volumeSizeBytes` is the
-// owner's view of the volume the host is told about separately.
-function toDesiredConfig(row: DesiredDeploymentRow): AppConfig {
-  const { guestPort, args, resources, healthCheck, restartPolicy } = toAppConfig(row);
-  return { guestPort, args, resources, healthCheck, restartPolicy, environment: {} };
+// The one place a tenant's environment is in the clear, and the last moment it can be: past here
+// it is on its way to the host that runs the binary. `volumeSizeBytes` is dropped because it is
+// the owner's view of a volume the host is told about separately.
+function toDesiredConfig({
+  row,
+  sealed,
+  secretsKey,
+}: {
+  row: DesiredDeploymentRow;
+  sealed: SealedEnvironment;
+  secretsKey: TenantSecretsKey;
+}): AppConfig {
+  return {
+    ...toRunConfig(row),
+    environment: openEnvironment({ key: secretsKey, sealed }),
+  };
 }

@@ -1,8 +1,15 @@
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@repo/ui/components/accordion';
 import { Button } from '@repo/ui/components/button';
 import { Field, FieldDescription, FieldError, FieldLabel } from '@repo/ui/components/field';
 import { Input } from '@repo/ui/components/input';
 import { Textarea } from '@repo/ui/components/textarea';
 import { DeployBinaryField } from '#components/apps/deploy-binary-field.tsx';
+import { DeployEnvironmentField } from '#components/apps/deploy-environment-field.tsx';
 import { DeployNameField } from '#components/apps/deploy-name-field.tsx';
 import { useDeployForm, validatePort } from '#lib/hooks/use-deploy-form.ts';
 
@@ -61,6 +68,26 @@ export function DeployForm({ appId }: { appId: string | undefined }) {
           </Field>
         )}
       </api.Field>
+
+      <Accordion>
+        <AccordionItem>
+          <AccordionTrigger>
+            Advanced settings
+            {/* Collapsed, a refused variable would disable the button with nothing on screen
+                saying why, so the section that holds it says so itself. */}
+            <api.Subscribe selector={(state) => state.fieldMeta.environment?.errors.length ?? 0}>
+              {(refused) =>
+                refused > 0 ? (
+                  <span className="font-normal text-destructive">needs a look</span>
+                ) : null
+              }
+            </api.Subscribe>
+          </AccordionTrigger>
+          <AccordionContent>
+            <DeployEnvironmentField api={api} replacing={replacing} />
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
 
       {replacing !== undefined && (
         <p className="wrap-anywhere rounded-2xl bg-destructive/10 px-3 py-2 text-destructive text-sm">

@@ -9,7 +9,12 @@ import {
   OwnerIdSchema,
   Value,
 } from '@repo/protocol';
-import { type AppConfigColumns, type PublicAppConfig, VOLUME_SIZE_BYTES } from '#lib/app-config.ts';
+import {
+  type AppConfigColumns,
+  type PublicAppConfig,
+  type StoredAppConfig,
+  VOLUME_SIZE_BYTES,
+} from '#lib/app-config.ts';
 import type {
   DeploymentByIdInput,
   DeploymentLookup,
@@ -45,6 +50,7 @@ export function deploymentLookup(
 // which is the thing under test wherever this is the expected value.
 export const DEFAULT_CONFIG: PublicAppConfig = {
   volumeSizeBytes: VOLUME_SIZE_BYTES,
+  environment: {},
   guestPort: DEFAULT_GUEST_PORT,
   args: [],
   resources: DEFAULT_INSTANCE_RESOURCES,
@@ -52,9 +58,13 @@ export const DEFAULT_CONFIG: PublicAppConfig = {
   restartPolicy: DEFAULT_RESTART_POLICY,
 };
 
+/** The same defaults, in the shape a repository is handed rather than the one an owner reads. */
+export const DEFAULT_STORED_CONFIG: StoredAppConfig = { ...DEFAULT_CONFIG, environment: {} };
+
 /** The inverse of `toAppConfig`: the `app_configs` columns a row carries for this config. */
-export function configColumns(config: PublicAppConfig): AppConfigColumns {
+export function configColumns(config: StoredAppConfig | PublicAppConfig): AppConfigColumns {
   return {
+    environment_names: Object.keys(config.environment),
     guest_port: config.guestPort,
     args: [...config.args],
     vcpu_count: config.resources.vcpuCount,

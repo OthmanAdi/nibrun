@@ -1,3 +1,4 @@
+import type { TypedSQL } from '@ilbertt/bun-sqlgen';
 import type {
   AppHostnameKind,
   AppId,
@@ -9,7 +10,8 @@ import type {
 } from '@repo/protocol';
 import type { ArrayType } from 'bun';
 import type { Queries } from '#db/queries.gen.d.ts';
-import { type AppConfigPatch, type PublicAppConfig, toAppConfig } from '#lib/app-config.ts';
+import { type SealedConfigPatch, type StoredAppConfig, toAppConfig } from '#lib/app-config.ts';
+import type { SealedEnvironment } from '#lib/tenant-secrets.ts';
 import { Repository } from '#repositories/repository.ts';
 
 /**
@@ -17,7 +19,7 @@ import { Repository } from '#repositories/repository.ts';
  * back element by element — so the arguments would arrive quoted rather than rejected. Naming
  * the type is what makes the column and the parameter agree.
  */
-const TENANT_ARGS_TYPE: ArrayType = 'TEXT';
+const TEXT_ARRAY: ArrayType = 'TEXT';
 
 export type AppRow = Queries['SelectAppById'];
 export type AppHostnameRow = Queries['SelectAppHostnamesByApp'];
@@ -43,13 +45,13 @@ export abstract class AppsRepositoryContract {
     ownerId: OwnerId;
     slug: DnsLabel;
     hostname: Hostname;
-    config: PublicAppConfig;
+    config: StoredAppConfig;
   }): Promise<CreatedApp>;
   abstract listByOwner(input: { ownerId: OwnerId }): Promise<AppRow[]>;
   abstract listHostnamesByOwner(input: { ownerId: OwnerId }): Promise<OwnedAppHostnameRow[]>;
   abstract findById(input: OwnedApp): Promise<AppRow | null>;
   abstract listHostnamesByApp(input: OwnedApp): Promise<AppHostnameRow[]>;
-  abstract updateConfig(input: OwnedApp & { patch: AppConfigPatch }): Promise<AppRow | null>;
+  abstract updateConfig(input: OwnedApp & { patch: SealedConfigPatch }): Promise<AppRow | null>;
   abstract updateState(input: OwnedApp & { state: AppState }): Promise<AppRow | null>;
   abstract finishDeleting(input: { appId: AppId }): Promise<boolean>;
   abstract isDeletionFinishable(input: { appId: AppId }): Promise<boolean>;
@@ -81,7 +83,7 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
     ownerId: OwnerId;
     slug: DnsLabel;
     hostname: Hostname;
-    config: PublicAppConfig;
+    config: StoredAppConfig;
   }): Promise<CreatedApp> {
     return this.sql.begin(async (tx) => {
       const [inserted] = await tx.InsertApp`
@@ -93,7 +95,7 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
         throw new Error('Inserting into nibrun.apps returned no row.');
       }
 
-      await tx.InsertAppConfig`
+      const [insertedConfig] = await tx.InsertAppConfig`
         INSERT INTO nibrun.app_configs (
           app_id, guest_port, args, vcpu_count, memory_mib,
           health_check_path, health_check_interval_ms, health_check_timeout_ms,
@@ -103,7 +105,7 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
           restart_backoff_factor, restart_reset_after_ms
         )
         VALUES (
-          ${inserted.id}, ${config.guestPort}, ${tx.array(config.args, TENANT_ARGS_TYPE)},
+          ${inserted.id}, ${config.guestPort}, ${tx.array(config.args, TEXT_ARRAY)},
           ${config.resources.vcpuCount}, ${config.resources.memoryMib},
           ${config.healthCheck.path ?? null}, ${config.healthCheck.intervalMs},
           ${config.healthCheck.timeoutMs}, ${config.healthCheck.gracePeriodMs},
@@ -112,7 +114,17 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
           ${config.restartPolicy.maxBackoffMs}, ${config.restartPolicy.backoffFactor},
           ${config.restartPolicy.resetAfterMs}
         )
+        RETURNING id
       `;
+      if (!insertedConfig) {
+        throw new Error('Inserting into nibrun.app_configs returned no row.');
+      }
+
+      await insertEnvironment({
+        tx,
+        configId: insertedConfig.id,
+        environment: config.environment,
+      });
 
       const [hostnameRow] = await tx.InsertAppHostname`
         INSERT INTO nibrun.app_hostnames (app_id, hostname, kind)
@@ -124,6 +136,7 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
       }
 
       const [app] = await tx.SelectCreatedApp`
+        /* @notNull environment_names */
         /* @notNull created_at */
         SELECT a.id, a.owner_id, a.slug, a.state, a.created_at, a.updated_at,
                c.guest_port, c.args, c.vcpu_count, c.memory_mib,
@@ -131,10 +144,10 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
                c.health_check_grace_period_ms, c.health_check_healthy_threshold,
                c.health_check_unhealthy_threshold,
                c.restart_max_restarts, c.restart_initial_backoff_ms, c.restart_max_backoff_ms,
-               c.restart_backoff_factor, c.restart_reset_after_ms
+               c.restart_backoff_factor, c.restart_reset_after_ms, c.environment_names
         FROM nibrun.live_apps a
         JOIN LATERAL (
-          SELECT * FROM nibrun.app_configs c
+          SELECT * FROM nibrun.app_configs_with_environment c
           WHERE c.app_id = a.id ORDER BY c.id DESC LIMIT 1
         ) c ON true
         WHERE a.id = ${inserted.id} AND a.owner_id = ${ownerId}
@@ -149,6 +162,7 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
 
   listByOwner({ ownerId }: { ownerId: OwnerId }): Promise<AppRow[]> {
     return this.sql.SelectAppsByOwner`
+      /* @notNull environment_names */
       /* @notNull created_at */
       SELECT a.id, a.owner_id, a.slug, a.state, a.created_at, a.updated_at,
              c.guest_port, c.args, c.vcpu_count, c.memory_mib,
@@ -156,10 +170,10 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
              c.health_check_grace_period_ms, c.health_check_healthy_threshold,
              c.health_check_unhealthy_threshold,
              c.restart_max_restarts, c.restart_initial_backoff_ms, c.restart_max_backoff_ms,
-             c.restart_backoff_factor, c.restart_reset_after_ms
+             c.restart_backoff_factor, c.restart_reset_after_ms, c.environment_names
       FROM nibrun.live_apps a
       JOIN LATERAL (
-        SELECT * FROM nibrun.app_configs c
+        SELECT * FROM nibrun.app_configs_with_environment c
         WHERE c.app_id = a.id ORDER BY c.id DESC LIMIT 1
       ) c ON true
       WHERE a.owner_id = ${ownerId}
@@ -179,6 +193,7 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
 
   async findById({ appId, ownerId }: OwnedApp): Promise<AppRow | null> {
     const [app] = await this.sql.SelectAppById`
+      /* @notNull environment_names */
       /* @notNull created_at */
       SELECT a.id, a.owner_id, a.slug, a.state, a.created_at, a.updated_at,
              c.guest_port, c.args, c.vcpu_count, c.memory_mib,
@@ -186,10 +201,10 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
              c.health_check_grace_period_ms, c.health_check_healthy_threshold,
              c.health_check_unhealthy_threshold,
              c.restart_max_restarts, c.restart_initial_backoff_ms, c.restart_max_backoff_ms,
-             c.restart_backoff_factor, c.restart_reset_after_ms
+             c.restart_backoff_factor, c.restart_reset_after_ms, c.environment_names
       FROM nibrun.live_apps a
       JOIN LATERAL (
-        SELECT * FROM nibrun.app_configs c
+        SELECT * FROM nibrun.app_configs_with_environment c
         WHERE c.app_id = a.id ORDER BY c.id DESC LIMIT 1
       ) c ON true
       WHERE a.id = ${appId} AND a.owner_id = ${ownerId}
@@ -210,7 +225,7 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
   // A patch appends a version rather than editing one, and the newest version is the live one,
   // so the write is a single INSERT. `FOR UPDATE` is what stops two concurrent patches reading
   // the same starting config and the later INSERT silently dropping the earlier one's fields.
-  updateConfig({ appId, ownerId, patch }: OwnedApp & { patch: AppConfigPatch }) {
+  updateConfig({ appId, ownerId, patch }: OwnedApp & { patch: SealedConfigPatch }) {
     return this.sql.begin(async (tx) => {
       const [locked] = await tx.SelectAppForConfigUpdate`
         SELECT a.id
@@ -223,13 +238,14 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
       }
 
       const [current] = await tx.SelectCurrentAppConfig`
-        SELECT c.guest_port, c.args, c.vcpu_count, c.memory_mib,
+        /* @notNull environment_names */
+        SELECT c.id, c.guest_port, c.args, c.vcpu_count, c.memory_mib,
                c.health_check_path, c.health_check_interval_ms, c.health_check_timeout_ms,
                c.health_check_grace_period_ms, c.health_check_healthy_threshold,
                c.health_check_unhealthy_threshold,
                c.restart_max_restarts, c.restart_initial_backoff_ms, c.restart_max_backoff_ms,
-               c.restart_backoff_factor, c.restart_reset_after_ms
-        FROM nibrun.app_configs c
+               c.restart_backoff_factor, c.restart_reset_after_ms, c.environment_names
+        FROM nibrun.app_configs_with_environment c
         WHERE c.app_id = ${appId}
         ORDER BY c.id DESC
         LIMIT 1
@@ -250,7 +266,7 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
           restart_backoff_factor, restart_reset_after_ms
         )
         VALUES (
-          ${appId}, ${config.guestPort}, ${tx.array(config.args, TENANT_ARGS_TYPE)},
+          ${appId}, ${config.guestPort}, ${tx.array(config.args, TEXT_ARRAY)},
           ${config.resources.vcpuCount}, ${config.resources.memoryMib},
           ${config.healthCheck.path ?? null}, ${config.healthCheck.intervalMs},
           ${config.healthCheck.timeoutMs}, ${config.healthCheck.gracePeriodMs},
@@ -265,13 +281,27 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
         throw new Error('Inserting into nibrun.app_configs returned no row.');
       }
 
+      if (patch.environment === undefined) {
+        // Copied rather than read and rewritten: the api has no reason to open a value it is
+        // only carrying forward, so the ciphertext never leaves the database.
+        await tx.CarryEnvironmentForward`
+          INSERT INTO nibrun.app_config_environment (config_id, name, value)
+          SELECT ${inserted.id}, e.name, e.value
+          FROM nibrun.app_config_environment e
+          WHERE e.config_id = ${current.id}
+        `;
+      } else {
+        await insertEnvironment({ tx, configId: inserted.id, environment: patch.environment });
+      }
+
       // Reconfiguring an app changes the app, but the new version lands in another table, so
       // nothing would move `updated_at` without this.
       const [app] = await tx.TouchAppAfterConfigPatch`
+        /* @notNull environment_names */
         /* @notNull created_at */
         UPDATE nibrun.apps a
         SET updated_at = now()
-        FROM nibrun.app_configs c
+        FROM nibrun.app_configs_with_environment c
         WHERE a.id = ${appId} AND a.owner_id = ${ownerId} AND c.id = ${inserted.id}
         RETURNING a.id, a.owner_id, a.slug, a.state, a.created_at, a.updated_at,
                   c.guest_port, c.args, c.vcpu_count, c.memory_mib,
@@ -279,7 +309,7 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
                   c.health_check_grace_period_ms, c.health_check_healthy_threshold,
                   c.health_check_unhealthy_threshold,
                   c.restart_max_restarts, c.restart_initial_backoff_ms, c.restart_max_backoff_ms,
-                  c.restart_backoff_factor, c.restart_reset_after_ms
+                  c.restart_backoff_factor, c.restart_reset_after_ms, c.environment_names
       `;
       return app ?? null;
     });
@@ -396,6 +426,7 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
       }
 
       const [app] = await tx.SelectAppAfterStateChange`
+        /* @notNull environment_names */
         /* @notNull created_at */
         SELECT a.id, a.owner_id, a.slug, a.state, a.created_at, a.updated_at,
                c.guest_port, c.args, c.vcpu_count, c.memory_mib,
@@ -403,10 +434,10 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
                c.health_check_grace_period_ms, c.health_check_healthy_threshold,
                c.health_check_unhealthy_threshold,
                c.restart_max_restarts, c.restart_initial_backoff_ms, c.restart_max_backoff_ms,
-               c.restart_backoff_factor, c.restart_reset_after_ms
+               c.restart_backoff_factor, c.restart_reset_after_ms, c.environment_names
         FROM nibrun.live_apps a
         JOIN LATERAL (
-          SELECT * FROM nibrun.app_configs c
+          SELECT * FROM nibrun.app_configs_with_environment c
           WHERE c.app_id = a.id ORDER BY c.id DESC LIMIT 1
         ) c ON true
         WHERE a.id = ${appId} AND a.owner_id = ${ownerId}
@@ -414,4 +445,45 @@ export class AppsRepository extends Repository implements AppsRepositoryContract
       return app ?? null;
     });
   }
+}
+
+/**
+ * One statement rather than one per variable: an environment is small, but a round trip each is
+ * still a round trip inside the transaction that is holding the app's row.
+ *
+ * Nothing is written for an app that sets none, which is what keeps an empty environment from
+ * being a statement with no rows to insert.
+ */
+async function insertEnvironment({
+  tx,
+  configId,
+  environment,
+}: {
+  tx: TypedSQL<Queries>;
+  configId: string;
+  environment: SealedEnvironment;
+}): Promise<void> {
+  const names = Object.keys(environment);
+  if (names.length === 0) {
+    return;
+  }
+
+  // Untagged deliberately: `sql.array` is a clause the generator blanks out before it parses the
+  // statement, and `UNNEST(, )` is not a statement. Naming a query is what opts it into
+  // generation, so this opts out — there is no row type to lose, the insert returns none.
+  //
+  // The arrays are `sql.array` rather than plain ones because a bare JS array is serialised as a
+  // comma-joined list, which Postgres reads as one malformed array literal rather than as many
+  // values.
+  await tx`
+    INSERT INTO nibrun.app_config_environment (config_id, name, value)
+    SELECT ${configId}, pair.name, pair.value
+    FROM UNNEST(
+      ${tx.array(names, TEXT_ARRAY)},
+      ${tx.array(
+        names.map((name) => environment[name] ?? ''),
+        TEXT_ARRAY,
+      )}
+    ) AS pair(name, value)
+  `;
 }
