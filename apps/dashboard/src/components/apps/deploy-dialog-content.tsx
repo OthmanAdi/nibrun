@@ -7,6 +7,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@repo/ui/components/dialog';
+import { DialogBody } from '@repo/ui/custom/dialog-body';
 import { RocketIcon } from 'lucide-react';
 import { useState } from 'react';
 import { DeployForm } from '#components/apps/deploy-form.tsx';
@@ -40,7 +41,9 @@ export function DeployDialogContent({ appId }: { appId?: string }) {
               : 'The binary is on its way. Closing this does not stop it.'}
           </DialogDescription>
         </DialogHeader>
-        {run.phase === 'idle' ? <DeployForm appId={appId} /> : <DeployProgress />}
+        <DialogBody>
+          {run.phase === 'idle' ? <DeployForm appId={appId} /> : <DeployProgress />}
+        </DialogBody>
       </DialogContent>
     </Dialog>
   );
