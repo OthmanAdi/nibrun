@@ -2,7 +2,7 @@ import { Type } from '@sinclair/typebox';
 import { AppConfigSchema } from '#domain/app.ts';
 import { AppIdSchema, ArtifactIdSchema, DeploymentIdSchema } from '#domain/identifiers.ts';
 import { stringEnum } from '#lib/string-enum.ts';
-import { TimestampSchema } from '#lib/wire.ts';
+import { StateMessageSchema, TimestampSchema } from '#lib/wire.ts';
 
 export const DEPLOYMENT_STATES = ['pending', 'starting', 'active', 'superseded', 'failed'] as const;
 
@@ -17,7 +17,16 @@ export const DeploymentSchema = Type.Object({
   config: AppConfigSchema,
   state: DeploymentStateSchema,
   createdAt: TimestampSchema,
+  // What a host observed of the microVM this release is, as against when the release was asked
+  // for. Each is absent until the moment it names has happened: a release still being staged has
+  // no start, and one that never answered a probe has never been healthy.
+  startedAt: Type.Optional(TimestampSchema),
   activatedAt: Type.Optional(TimestampSchema),
+  lastHealthyAt: Type.Optional(TimestampSchema),
+  restartCount: Type.Integer({ minimum: 0 }),
+  // The only account an owner gets of a release that did not come up. The database has kept all
+  // of this since deployments existed; until now nothing read it back out.
+  message: Type.Optional(StateMessageSchema),
   // Present when this deployment was made by going back to an older one, naming the one it
   // replays. A rollback is a new deployment rather than an old one revived, so this is what
   // says a release happened twice.

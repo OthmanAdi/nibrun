@@ -158,7 +158,8 @@ export class DeploymentsRepository extends Repository implements DeploymentsRepo
       /* @notNull environment_names */
       /* @notNull created_at */
       SELECT d.id, d.app_id, d.artifact_id, d.state, d.activated_at,
-             d.rollback_of_deployment_id, d.created_at,
+             d.rollback_of_deployment_id, d.created_at, d.message,
+             d.started_at, d.last_healthy_at, d.restart_count,
                c.guest_port, c.args, c.vcpu_count, c.memory_mib,
                c.health_check_path, c.health_check_interval_ms, c.health_check_timeout_ms,
                c.health_check_grace_period_ms, c.health_check_healthy_threshold,
@@ -182,7 +183,8 @@ export class DeploymentsRepository extends Repository implements DeploymentsRepo
       /* @notNull environment_names */
       /* @notNull created_at */
       SELECT d.id, d.app_id, d.artifact_id, d.state, d.activated_at,
-             d.rollback_of_deployment_id, d.created_at,
+             d.rollback_of_deployment_id, d.created_at, d.message,
+             d.started_at, d.last_healthy_at, d.restart_count,
                c.guest_port, c.args, c.vcpu_count, c.memory_mib,
                c.health_check_path, c.health_check_interval_ms, c.health_check_timeout_ms,
                c.health_check_grace_period_ms, c.health_check_healthy_threshold,
@@ -303,7 +305,8 @@ export class DeploymentsRepository extends Repository implements DeploymentsRepo
       /* @notNull environment_names */
       /* @notNull created_at */
       SELECT d.id, d.app_id, d.artifact_id, d.state, d.activated_at,
-             d.rollback_of_deployment_id, d.created_at,
+             d.rollback_of_deployment_id, d.created_at, d.message,
+             d.started_at, d.last_healthy_at, d.restart_count,
              c.guest_port, c.args, c.vcpu_count, c.memory_mib,
              c.health_check_path, c.health_check_interval_ms, c.health_check_timeout_ms,
              c.health_check_grace_period_ms, c.health_check_healthy_threshold,
