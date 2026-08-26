@@ -21,10 +21,38 @@ variable "data_volume_size" {
   description = "Persistent data EBS volume size in GB. Backs Postgres. Survives instance replacement."
 }
 
+# Not m7i-flex, which this was and which nested virtualisation was verified on: a
+# flex instance sustains 40% of its vCPUs and bursts above that on credit, and a
+# host whose whole job is packing microVMs has nothing to spare when the credit
+# runs out.
+#
+# m8id rather than m7i because it is the cheaper of the two on spot and carries a
+# 118 GB NVMe instance store. Nothing uses that disk yet: /data is still the EBS
+# volume below, and moving the ZeroFS cache onto ephemeral storage needs a
+# boot-time format that nothing here does — ensure_data_volume.sh runs from the
+# deploy while /data remounts from fstab, so a blank instance store would come back
+# unmounted after every spot stop rather than merely cold.
 variable "app_host_instance_type" {
   type        = string
-  default     = "m7i-flex.large"
-  description = "Runs Firecracker microVMs and ZeroFS. Nested virtualisation works on ordinary Intel instances — verified on this one — so this is not a metal type and does not need to be."
+  default     = "m8id.large"
+  description = "Runs Firecracker microVMs and ZeroFS. Nested virtualisation works on ordinary Intel instances, so this is not a metal type and does not need to be — but it must be a type whose ProcessorInfo.SupportedFeatures lists nested-virtualization, or the host boots no microVM."
+}
+
+# Spot for the app host, and only ever the stopping kind. A reclaimed on-demand
+# request is terminated, which would put a replacement host on the same ZeroFS
+# prefix while the old one still held the writer epoch — and infra/app-host/AGENTS.md
+# is explicit that two read-write `zerofs run` against one prefix is an outage
+# rather than an error message. Stopping keeps the instance id, its data volume and
+# its elastic ip, so what comes back is the same host rather than a rival to it.
+#
+# What this does not buy: `ignore_fsync = true` puts the entire durability
+# guarantee in ZeroFS's five-second flush, so a reclaim loses 5-15 s of writes the
+# guest was told were durable. Cheap capacity is a decision about cost; that window
+# is a decision about tenants, and it is the one to revisit before launch.
+variable "app_host_spot" {
+  type        = bool
+  default     = true
+  description = "Buy app host capacity on the spot market. An interruption stops the instance rather than terminating it, and AWS starts it again when capacity returns."
 }
 
 variable "app_host_count" {
