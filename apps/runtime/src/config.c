@@ -18,10 +18,14 @@
 #define HTTP_PORT_KEY "HTTP_PORT"
 #define HOSTNAME_KEY "HOSTNAME"
 #define DATA_DIR_KEY "DATA_DIR"
+#define PUBLIC_IPV4_KEY "PUBLIC_IPV4"
+#define EXTRA_PUBLIC_PORT_KEY "EXTRA_PUBLIC_PORT"
 /* The runtime keys the tenant is handed under their own names, each spelled once. */
 #define HTTP_PORT_VARIABLE RUNTIME_PREFIX HTTP_PORT_KEY
 #define HOSTNAME_VARIABLE RUNTIME_PREFIX HOSTNAME_KEY
 #define DATA_DIR_VARIABLE RUNTIME_PREFIX DATA_DIR_KEY
+#define PUBLIC_IPV4_VARIABLE RUNTIME_PREFIX PUBLIC_IPV4_KEY
+#define EXTRA_PUBLIC_PORT_VARIABLE RUNTIME_PREFIX EXTRA_PUBLIC_PORT_KEY
 
 /* The name every other host sets, carrying the same number, because a binary written
  * against any of them reads this one and nothing of ours. */
@@ -40,9 +44,9 @@
 #define MIN_BACKOFF_FACTOR 1.0
 #define MAX_BACKOFF_FACTOR 1000.0
 
-/* NIBRUN_HTTP_PORT, PORT, NIBRUN_DATA_DIR, NIBRUN_HOSTNAME, HOME and TMPDIR, on top of
- * whatever the tenant configured. */
-#define BASE_VARIABLES 6
+/* NIBRUN_HTTP_PORT, PORT, NIBRUN_DATA_DIR, NIBRUN_HOSTNAME, NIBRUN_PUBLIC_IPV4,
+ * NIBRUN_EXTRA_PUBLIC_PORT, HOME and TMPDIR, on top of whatever the tenant configured. */
+#define BASE_VARIABLES 8
 
 enum field_type {
   FIELD_UNSIGNED,
@@ -77,6 +81,12 @@ static const struct field FIELDS[] = {
     {"DNS", FIELD_NAMESERVERS, 0, 0, 0, false},
     {HOSTNAME_KEY, FIELD_TEXT, offsetof(struct instance_config, hostname), 1, CONFIG_MAX_HOSTNAME,
      false},
+    /* Optional together: an app that asked for no extra port is given neither, and an
+     * agent older than this image writes neither. Both are why they cannot be required. */
+    {PUBLIC_IPV4_KEY, FIELD_TEXT, offsetof(struct instance_config, public_ipv4), 1, CONFIG_MAX_ADDRESS,
+     false},
+    {EXTRA_PUBLIC_PORT_KEY, FIELD_UNSIGNED, offsetof(struct instance_config, extra_public_port), MIN_PORT,
+     MAX_PORT, false},
 };
 
 #define FIELD_COUNT (sizeof(FIELDS) / sizeof(FIELDS[0]))
@@ -382,6 +392,20 @@ static bool reference_value(const struct instance_config *config, const struct r
     *out = DATA_DIR;
     return true;
   }
+  if (names_key(reference, PUBLIC_IPV4_KEY)) {
+    *out = config->public_ipv4;
+    return true;
+  }
+  if (names_key(reference, EXTRA_PUBLIC_PORT_KEY)) {
+    /* Zero is below MIN_PORT, so it can only mean the writer sent none. */
+    if (config->extra_public_port == 0) {
+      *out = NULL;
+      return true;
+    }
+    snprintf(rendered, rendered_size, "%u", config->extra_public_port);
+    *out = rendered;
+    return true;
+  }
   return false;
 }
 
@@ -557,6 +581,12 @@ static const char *platform_owned_name(const char *entry) {
   if (is_named(entry, DATA_DIR_VARIABLE)) {
     return DATA_DIR_VARIABLE;
   }
+  if (is_named(entry, PUBLIC_IPV4_VARIABLE)) {
+    return PUBLIC_IPV4_VARIABLE;
+  }
+  if (is_named(entry, EXTRA_PUBLIC_PORT_VARIABLE)) {
+    return EXTRA_PUBLIC_PORT_VARIABLE;
+  }
   return NULL;
 }
 
@@ -586,6 +616,8 @@ char *const *config_build_environment(const struct instance_config *config) {
   static char http_port_variable[sizeof(HTTP_PORT_VARIABLE "=65535")];
   static char port_alias_variable[sizeof(PORT_ALIAS "=65535")];
   static char hostname_variable[sizeof(HOSTNAME_VARIABLE "=") + CONFIG_MAX_HOSTNAME];
+  static char public_ipv4_variable[sizeof(PUBLIC_IPV4_VARIABLE "=") + CONFIG_MAX_ADDRESS];
+  static char extra_public_port_variable[sizeof(EXTRA_PUBLIC_PORT_VARIABLE "=4294967295")];
 
   snprintf(http_port_variable, sizeof(http_port_variable), "%s=%u", HTTP_PORT_VARIABLE,
            config->port);
@@ -598,6 +630,18 @@ char *const *config_build_environment(const struct instance_config *config) {
     snprintf(hostname_variable, sizeof(hostname_variable), "%s=%s", HOSTNAME_VARIABLE,
              config->hostname);
     environment[count++] = hostname_variable;
+  }
+  /* Absent rather than empty for an app that asked for no extra port: a binary reading
+   * one of these asks whether it was given an address at all, and "" is not an answer. */
+  if (config->public_ipv4 != NULL) {
+    snprintf(public_ipv4_variable, sizeof(public_ipv4_variable), "%s=%s", PUBLIC_IPV4_VARIABLE,
+             config->public_ipv4);
+    environment[count++] = public_ipv4_variable;
+  }
+  if (config->extra_public_port != 0) {
+    snprintf(extra_public_port_variable, sizeof(extra_public_port_variable), "%s=%u", EXTRA_PUBLIC_PORT_VARIABLE,
+             config->extra_public_port);
+    environment[count++] = extra_public_port_variable;
   }
 
   for (size_t index = 0; index < config->tenant_variable_count; index++) {
