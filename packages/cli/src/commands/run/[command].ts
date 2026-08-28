@@ -23,13 +23,17 @@ export const command = defineCommand('run [command]', {
       description: 'Name for the new app. Defaults to the binary filename.',
     },
     [SHARED_OPTIONS.port.name]: SHARED_OPTIONS.port.option,
+    [SHARED_OPTIONS.extraPublicPort.name]: SHARED_OPTIONS.extraPublicPort.option,
     [SHARED_OPTIONS.env.name]: SHARED_OPTIONS.env.option,
     [SHARED_OPTIONS.unset.name]: SHARED_OPTIONS.unset.option,
     [SHARED_OPTIONS.detach.name]: SHARED_OPTIONS.detach.option,
   },
   beforeHandler: ({ context }) => requireSignedIn(context),
   handler: async ({ params, options, context, print }) => {
-    const { detach, ...given } = options;
+    // parsh names an option as it is typed, so a flag with hyphens in it does not arrive under the
+    // name the deploy takes and has to be renamed rather than spread through.
+    const { detach, [SHARED_OPTIONS.extraPublicPort.name]: extraPublicPort, ...flags } = options;
+    const given = { ...flags, extraPublicPort };
     const { binaryPath, args } = parseCommandLine(params.command);
     const { api } = context;
 

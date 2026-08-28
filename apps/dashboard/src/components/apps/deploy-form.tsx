@@ -1,3 +1,4 @@
+import { EXTRA_PUBLIC_PORT_VALUES, RUNTIME_VALUES, writtenRuntimeValue } from '@repo/protocol';
 import {
   Accordion,
   AccordionContent,
@@ -5,7 +6,14 @@ import {
   AccordionTrigger,
 } from '@repo/ui/components/accordion';
 import { Button } from '@repo/ui/components/button';
-import { Field, FieldDescription, FieldError, FieldLabel } from '@repo/ui/components/field';
+import { Checkbox } from '@repo/ui/components/checkbox';
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from '@repo/ui/components/field';
 import { Input } from '@repo/ui/components/input';
 import { Textarea } from '@repo/ui/components/textarea';
 import { useStore } from '@tanstack/react-form';
@@ -21,6 +29,7 @@ import {
 } from '#lib/hooks/use-deploy-form.ts';
 
 const ARGUMENTS = 'Arguments';
+const ADDITIONAL_PORTS = 'Additional ports';
 
 export function DeployForm({
   appId,
@@ -31,7 +40,15 @@ export function DeployForm({
   binary: File | undefined;
   suggested?: DeploySuggestion | undefined;
 }) {
-  const { api, locked, replacing, targetResolved, defaultPort, defaultArgs } = useDeployForm({
+  const {
+    api,
+    locked,
+    replacing,
+    targetResolved,
+    defaultPort,
+    defaultExtraPublicPort,
+    defaultArgs,
+  } = useDeployForm({
     appId,
     binary,
     suggested,
@@ -70,6 +87,63 @@ export function DeployForm({
           </Field>
         )}
       </api.Field>
+
+      <Accordion>
+        <AccordionItem>
+          <AccordionTrigger>
+            <span className="flex items-baseline gap-2">
+              {ADDITIONAL_PORTS}
+              <api.Subscribe
+                selector={(state) => state.values.extraPublicPort ?? defaultExtraPublicPort}
+              >
+                {(asked) => <CollapsedState on={asked} />}
+              </api.Subscribe>
+            </span>
+          </AccordionTrigger>
+          <AccordionContent keepMounted>
+            <api.Field name="extraPublicPort">
+              {(field) => (
+                <Field orientation="horizontal">
+                  <Checkbox
+                    id="deploy-extra-public-port"
+                    checked={field.state.value ?? defaultExtraPublicPort}
+                    onCheckedChange={(checked) => field.handleChange(checked)}
+                  />
+                  <FieldContent>
+                    <FieldLabel htmlFor="deploy-extra-public-port">
+                      Give this app a public port besides HTTPS
+                    </FieldLabel>
+                    <FieldDescription>
+                      One port, TCP and UDP, for a protocol HTTPS cannot carry — WebRTC media, a
+                      game server, anything that has to be reached directly.
+                    </FieldDescription>
+                    <FieldDescription>
+                      You do not pick the number. nibrun assigns it and sets these for the app:
+                    </FieldDescription>
+                    <ul className="list-disc space-y-1 pt-2 pb-3 pl-4 text-muted-foreground text-sm">
+                      {EXTRA_PUBLIC_PORT_VALUES.map(({ name, description }) => (
+                        <li key={name}>
+                          <code className="font-mono">{name}</code> — {description}
+                        </li>
+                      ))}
+                    </ul>
+                    <FieldDescription>
+                      Your own variables may name them — set{' '}
+                      <code className="font-mono">
+                        ANNOUNCED_IP={writtenRuntimeValue(RUNTIME_VALUES.PUBLIC_IPV4.name)}
+                      </code>{' '}
+                      and the app reads it under the name it already expects.
+                    </FieldDescription>
+                    <FieldDescription>
+                      Free for now, and likely to become part of a paid plan later.
+                    </FieldDescription>
+                  </FieldContent>
+                </Field>
+              )}
+            </api.Field>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
 
       <Accordion>
         <AccordionItem>
@@ -156,6 +230,15 @@ export function DeployForm({
 }
 
 /** What the section holds, for as long as it is closed over it. */
+/** What the section says while it is shut, in the one word a count would be. */
+function CollapsedState({ on }: { on: boolean }) {
+  return (
+    <span className="font-normal text-muted-foreground text-xs group-aria-expanded/accordion-trigger:hidden">
+      {on ? 'one' : 'none'}
+    </span>
+  );
+}
+
 function CollapsedCount({ count }: { count: number }) {
   return (
     <span className="font-normal text-muted-foreground text-xs group-aria-expanded/accordion-trigger:hidden">
