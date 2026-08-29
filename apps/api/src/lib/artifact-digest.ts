@@ -163,6 +163,59 @@ export async function inspectArtifact({
   return read.verdict();
 }
 
+/**
+ * What more bytes than may ever be stored is raised as, on their way in from somewhere this end
+ * cannot hold to a length: an upload is signed for the size it declared, but a url is followed on
+ * the strength of what the host says about it — and a host that says nothing would otherwise be
+ * read until it stopped.
+ */
+export class ArtifactTooLargeError extends Error {
+  constructor() {
+    super('More bytes than may be stored.');
+    this.name = 'ArtifactTooLargeError';
+  }
+}
+
+/**
+ * The source as far as the cap, and an error rather than a truncation past it: what is being read
+ * is a binary, and the first half of one is not a smaller binary.
+ *
+ * Written around the source rather than piped through a transform, because what this is bounding
+ * is a socket: whoever gives up on these bytes has to let go of the connection they were arriving
+ * on, and a stream that only forwards them cannot be given up on that way. Going past the cap lets
+ * go of it here for the same reason — there is nothing left to learn from the rest.
+ */
+export function boundedTo({
+  source,
+  maxSizeBytes,
+}: {
+  source: ReadableStream<Uint8Array>;
+  maxSizeBytes: number;
+}): ReadableStream<Uint8Array> {
+  const reader = source.getReader();
+  let read = 0;
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) {
+        controller.close();
+        return;
+      }
+      read += value.byteLength;
+      if (read > maxSizeBytes) {
+        controller.error(new ArtifactTooLargeError());
+        await reader.cancel().catch(() => undefined);
+        return;
+      }
+      controller.enqueue(value);
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
+}
+
 /** What a refusal is raised as, so that whoever was writing the bytes stops and says why. */
 export class RefusedArtifactError extends Error {
   readonly inspection: ArtifactInspection;
