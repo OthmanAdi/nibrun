@@ -2,6 +2,7 @@ import {
   type App,
   type AppId,
   EXTRA_PUBLIC_PORT_VALUES,
+  type FilesystemUsage,
   namesExtraPublicPortValues,
   OWNED_APP_STATES,
   type OwnedAppState,
@@ -44,6 +45,8 @@ import { Service } from '#services/service.ts';
 export type PublicApp = Omit<App, 'config' | 'hostnames'> & {
   config: PublicAppConfig;
   hostnames: PublicAppHostname[];
+  /** `null` until a host has measured the filesystem, which it cannot while nothing mounts it. */
+  volumeUsage: FilesystemUsage | null;
 };
 
 type AppWithHostnames = { app: AppRow; hostnames: readonly AppHostnameRow[] };
@@ -300,6 +303,31 @@ export class AppsService extends Service {
   }
 
   /**
+   * What the hosts last measured of the filesystems they hold. Only the volumes carrying a
+   * reading: a host reports every volume it has on every report, and most of those reports are
+   * between measurements — so a missing reading means nothing new was taken, never that the
+   * filesystem emptied.
+   *
+   * One statement for the whole report rather than one per volume, because this sits on the path
+   * every host takes every few seconds: a host holding fifty apps would otherwise hold the report
+   * open for fifty round trips before anything after it could run.
+   *
+   * Deduplicated because `ON CONFLICT DO UPDATE` refuses to touch a row twice in one statement,
+   * and a host that reported two volumes for one app would take its whole report down with it.
+   */
+  async recordVolumeUsage({ volumes }: { volumes: readonly ReportedVolume[] }): Promise<void> {
+    const readings = new Map<AppId, FilesystemUsage>();
+    for (const volume of volumes) {
+      if (volume.usage) {
+        readings.set(volume.appId, volume.usage);
+      }
+    }
+    if (readings.size > 0) {
+      await this.appsRepo.recordVolumeUsage({ readings });
+    }
+  }
+
+  /**
    * The row stays behind: tearing an app down is the agent's work, the owner follows it through
    * this same state, and the slug must never be handed to a second app whatever happens.
    */
@@ -506,6 +534,22 @@ function requireApp(app: AppRow | null): AppRow {
   return app;
 }
 
+/** Three columns of one LEFT JOIN, so either the reading is there or the app has never had one. */
+function toVolumeUsage(app: AppRow): FilesystemUsage | null {
+  if (
+    app.volume_total_bytes === null ||
+    app.volume_used_bytes === null ||
+    app.volume_measured_at === null
+  ) {
+    return null;
+  }
+  return {
+    totalBytes: Number(app.volume_total_bytes),
+    usedBytes: Number(app.volume_used_bytes),
+    measuredAt: toTimestamp(app.volume_measured_at),
+  };
+}
+
 function toPublicApp({ app, hostnames }: AppWithHostnames): PublicApp {
   return {
     id: app.id,
@@ -513,6 +557,7 @@ function toPublicApp({ app, hostnames }: AppWithHostnames): PublicApp {
     slug: app.slug,
     hostnames: hostnames.map(toAppHostname),
     config: toAppConfig(app),
+    volumeUsage: toVolumeUsage(app),
     state: app.state,
     createdAt: toTimestamp(app.created_at),
     updatedAt: toTimestamp(app.updated_at),

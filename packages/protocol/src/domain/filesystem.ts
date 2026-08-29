@@ -99,3 +99,32 @@ export const DirectoryListingSchema = Type.Object({
 });
 
 export type DirectoryListing = typeof DirectoryListingSchema.static;
+
+/**
+ * How full a volume is, as the kernel that has it mounted accounts for it.
+ *
+ * Not a sum of what a listing showed: walking the tree costs what the tree costs, and it still
+ * misses what an unlinked file a tenant is holding open has not given back. This is one `statvfs`
+ * whatever the filesystem holds.
+ *
+ * `totalBytes` reads under the volume's size, because ext4 spends part of the device describing
+ * the rest of it — which is why both numbers come from the same answer rather than the size being
+ * the one the api already knows.
+ *
+ * `usedBytes` is what `df` calls used, so it counts the journal and the metadata ext4 wrote
+ * before a tenant existed: a volume nothing has ever been written to measures tens of mebibytes
+ * rather than nothing. Reporting the tenant's own files apart from that would mean walking the
+ * tree, which is the cost this exists to avoid — so whoever shows this figure has to say what it
+ * is, rather than let an owner read a fresh volume as one they have already filled.
+ *
+ * `measuredAt` because a reading is only worth what its age says it is: nothing can be measured
+ * while no guest has the filesystem mounted, so what a suspended app has is the last reading
+ * taken before it stopped, and a number with no moment attached reads as the number now.
+ */
+export const FilesystemUsageSchema = Type.Object({
+  totalBytes: ByteSizeSchema,
+  usedBytes: ByteSizeSchema,
+  measuredAt: TimestampSchema,
+});
+
+export type FilesystemUsage = typeof FilesystemUsageSchema.static;

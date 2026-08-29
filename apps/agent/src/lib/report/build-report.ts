@@ -1,5 +1,6 @@
 import type {
   AppId,
+  FilesystemUsage,
   HostCapacity,
   HostId,
   HostReportedState,
@@ -40,6 +41,21 @@ export function toReportedInstance({
   };
 }
 
+/**
+ * Stitched onto the report rather than onto the observation the reports are built from: a volume
+ * is observed by looking at a device file on this host, and how full the filesystem on it is can
+ * only be had by asking the guest — which the reconcile must never be made to wait for.
+ */
+function withUsage({
+  volume,
+  measured,
+}: {
+  volume: ReportedVolume;
+  measured: FilesystemUsage | undefined;
+}): ReportedVolume {
+  return measured === undefined ? volume : { ...volume, usage: measured };
+}
+
 export function buildReportedState({
   hostId,
   reportedAt,
@@ -50,6 +66,7 @@ export function buildReportedState({
   records,
   reachedAt,
   volumes,
+  volumeUsage,
   checkpoints,
   exports,
 }: {
@@ -63,6 +80,7 @@ export function buildReportedState({
   /** Where each app that asked for a public port answers, which is not on the record it is about. */
   reachedAt: ReadonlyMap<AppId, PublicAddress>;
   volumes: readonly ReportedVolume[];
+  volumeUsage: ReadonlyMap<AppId, FilesystemUsage>;
   checkpoints: readonly ReportedCheckpoint[];
   exports: readonly ReportedExport[];
 }): HostReportedState {
@@ -73,7 +91,9 @@ export function buildReportedState({
     capacity,
     allocatable,
     versions,
-    volumes: [...volumes],
+    volumes: volumes.map((volume) =>
+      withUsage({ volume, measured: volumeUsage.get(volume.appId) }),
+    ),
     instances: records.map((record) =>
       toReportedInstance({ record, reachedAt: reachedAt.get(record.appId) }),
     ),

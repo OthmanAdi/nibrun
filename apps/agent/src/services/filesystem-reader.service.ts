@@ -1,6 +1,11 @@
-import type { AppId, DirectoryListing, GuestPath } from '@repo/protocol';
+import type { AppId, DirectoryListing, FilesystemUsage, GuestPath } from '@repo/protocol';
 import { Data, Effect, Option } from 'effect';
-import { guestFilesystem } from '#lib/filesystem/client.ts';
+import { nowTimestamp } from '#lib/clock.ts';
+import {
+  type GuestFilesystem,
+  type GuestFilesystemError,
+  guestFilesystem,
+} from '#lib/filesystem/client.ts';
 import { AgentConfig } from '#services/agent-config.service.ts';
 import { SlotAllocator } from '#services/slot-allocator.service.ts';
 
@@ -13,7 +18,7 @@ export class NoDeviceForApp extends Data.TaggedError('NoDeviceForApp')<{
 }
 
 /**
- * Reads one directory out of one tenant's filesystem, by asking the guest that has it mounted.
+ * Reads one tenant's filesystem, by asking the guest that has it mounted.
  *
  * The slot lookup is what scopes it: an app resolves to the single microVM this host runs for it,
  * so a path is only ever resolved inside the filesystem its own app owns — and inside the guest,
@@ -28,6 +33,23 @@ export class FilesystemReader extends Effect.Service<FilesystemReader>()('Filesy
     const allocator = yield* SlotAllocator;
     const config = yield* AgentConfig;
 
+    function asked<A>({
+      appId,
+      of,
+    }: {
+      appId: AppId;
+      of: (guest: GuestFilesystem) => Effect.Effect<A, GuestFilesystemError>;
+    }) {
+      return Effect.gen(function* () {
+        if (Option.isNone(yield* allocator.lookup(appId))) {
+          return yield* new NoDeviceForApp({ appId });
+        }
+        return yield* Effect.scoped(
+          Effect.flatMap(guestFilesystem({ appId, vmDir: config.vmDir }), of),
+        );
+      });
+    }
+
     const list = Effect.fn('FilesystemReader.list')(function* ({
       appId,
       path,
@@ -36,18 +58,28 @@ export class FilesystemReader extends Effect.Service<FilesystemReader>()('Filesy
       path: GuestPath;
     }) {
       yield* Effect.annotateCurrentSpan({ appId, path });
-      if (Option.isNone(yield* allocator.lookup(appId))) {
-        return yield* new NoDeviceForApp({ appId });
-      }
-      const listing = yield* Effect.scoped(
-        Effect.flatMap(guestFilesystem({ appId, vmDir: config.vmDir }), (guest) =>
-          guest.list(path),
-        ),
-      );
+      const listing = yield* asked({ appId, of: (guest) => guest.list(path) });
       return listing satisfies DirectoryListing;
     });
 
-    return { list };
+    /**
+     * Stamped on this side because the guest has no clock worth reading: it boots without one and
+     * nothing tells it the time. What the moment is for is telling a reading taken a minute ago
+     * from one taken before the app was suspended last month.
+     *
+     * Read before the guest is asked rather than after it answers, so the moment is one the
+     * reading cannot be older than. A guest taking the whole reply timeout would otherwise have
+     * its reading stamped with the instant it arrived, and the age of a reading is the one thing
+     * that must never be overstated.
+     */
+    const usage = Effect.fn('FilesystemReader.usage')(function* ({ appId }: { appId: AppId }) {
+      yield* Effect.annotateCurrentSpan({ appId });
+      const measuredAt = yield* nowTimestamp;
+      const measured = yield* asked({ appId, of: (guest) => guest.usage() });
+      return { ...measured, measuredAt } satisfies FilesystemUsage;
+    });
+
+    return { list, usage };
   }),
   dependencies: [SlotAllocator.Default, AgentConfig.Default],
 }) {}
