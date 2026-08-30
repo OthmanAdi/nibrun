@@ -96,6 +96,13 @@ resource "aws_instance" "app_host" {
 
   lifecycle {
     ignore_changes = [ami]
+
+    # Checked here rather than in a variable validation, which cannot read a data
+    # source and so cannot ask AWS what a type actually has.
+    precondition {
+      condition     = data.aws_ec2_instance_type.app_host.instance_storage_supported
+      error_message = "app_host_instance_type must name a type with an instance store: /data is mounted from it and ZeroFS does not start without it. The `d` families — m8id, r8id, c8id — have one; m7i and m8i do not."
+    }
   }
 
   tags = {
@@ -118,11 +125,12 @@ resource "aws_eip" "app_host" {
   }
 }
 
-# ZeroFS's local cache, mounted at /data. Not where tenant data lives — S3 is
-# the source of truth and a host can be rebuilt from it — so the snapshots this
-# picks up are about bringing a replacement host back warm rather than about
-# durability, and prevent_destroy is about a plan never pulling a disk out from
-# under running microVMs.
+# Nothing mounts this any more: /data is the instance store the m8id carries, and
+# infra/app-host/deploy/ensure_ephemeral_data.sh is what puts it there. The volume
+# stays only so a revert has a disk to go back to, and goes once that stops being
+# worth keeping — with its Backup tag, which still bills for a daily snapshot of a
+# cache nothing reads. Removing it is not a plan away: prevent_destroy below makes
+# it the same two-step operation scaling down is.
 #
 # prevent_destroy under count applies to every element, which makes scaling
 # *down* a two-step operation rather than a decrement: lowering
