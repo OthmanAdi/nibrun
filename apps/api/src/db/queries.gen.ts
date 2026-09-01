@@ -160,6 +160,21 @@ export interface ISelectAppOwnershipResult {
     id: IAppsColumns["id"];
 }
 
+/** Result of query `SelectAppsAllowed`. */
+export interface ISelectAppsAllowedResult {
+    apps_allowed: IProfilesColumns["quota_apps_max_count"];
+}
+
+/** Result of query `SelectProfileForAppCreate`. */
+export interface ISelectProfileForAppCreateResult {
+    owner_id: IProfilesColumns["owner_id"];
+}
+
+/** Result of query `SelectAppsLeft`. */
+export interface ISelectAppsLeftResult {
+    apps_left: number;
+}
+
 /** Result of query `InsertApp`. */
 export interface IInsertAppResult {
     id: IAppsColumns["id"];
@@ -821,6 +836,9 @@ export interface Queries {
     SelectDisposableAppHostnames: ISelectDisposableAppHostnamesResult;
     DeleteDisposableAppHostname: IDeleteDisposableAppHostnameResult;
     SelectAppOwnership: ISelectAppOwnershipResult;
+    SelectAppsAllowed: ISelectAppsAllowedResult;
+    SelectProfileForAppCreate: ISelectProfileForAppCreateResult;
+    SelectAppsLeft: ISelectAppsLeftResult;
     InsertApp: IInsertAppResult;
     InsertAppConfig: IInsertAppConfigResult;
     InsertAppHostname: IInsertAppHostnameResult;
@@ -1082,6 +1100,22 @@ export interface IAppHostnamesTable {
     relationType: (typeof schema)["app_hostnames"]["_relationType"];
     indexes: keyof (typeof schema)["app_hostnames"]["_indexes"];
     constraints: keyof (typeof schema)["app_hostnames"]["_constraints"];
+}
+
+/** Columns of `app_quotas`. */
+export interface IAppQuotasColumns {
+    owner_id: string | null;
+    apps_held: number | null;
+    apps_allowed: number | null;
+    apps_left: number | null;
+}
+
+/** Schema of `app_quotas`. */
+export interface IAppQuotasTable {
+    columns: IAppQuotasColumns;
+    relationType: (typeof schema)["app_quotas"]["_relationType"];
+    indexes: keyof (typeof schema)["app_quotas"]["_indexes"];
+    constraints: keyof (typeof schema)["app_quotas"]["_constraints"];
 }
 
 /** Columns of `app_usage`. */
@@ -1656,6 +1690,18 @@ export const schema = {
             app_hostnames_state_check: { _constraintName: "app_hostnames_state_check" }
         }
     },
+    app_quotas: {
+        _relationName: "app_quotas",
+        _relationType: "view",
+        _columns: {
+            owner_id: { _columnName: "owner_id", _foreignKeys: {} },
+            apps_held: { _columnName: "apps_held", _foreignKeys: {} },
+            apps_allowed: { _columnName: "apps_allowed", _foreignKeys: {} },
+            apps_left: { _columnName: "apps_left", _foreignKeys: {} }
+        },
+        _indexes: {},
+        _constraints: {}
+    },
     app_usage: {
         _relationName: "app_usage",
         _relationType: "table",
@@ -1975,6 +2021,7 @@ export interface Tables {
     app_configs: IAppConfigsTable;
     app_configs_with_environment: IAppConfigsWithEnvironmentTable;
     app_hostnames: IAppHostnamesTable;
+    app_quotas: IAppQuotasTable;
     app_usage: IAppUsageTable;
     apps: IAppsTable;
     artifacts: IArtifactsTable;
