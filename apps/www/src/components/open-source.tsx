@@ -1,7 +1,7 @@
 import { Button } from '@repo/ui/components/button';
+import { GithubMark } from '@repo/ui/custom/github-mark';
+import { GithubRepoLink } from '@repo/ui/custom/github-repo-link';
 import { StarIcon } from 'lucide-react';
-import { GithubMark } from '#components/github-mark.tsx';
-import { REPO_URL } from '#lib/site.ts';
 
 export function OpenSource() {
   return (
@@ -23,7 +23,7 @@ export function OpenSource() {
         variant="outline"
         size="lg"
         className="h-11 gap-2 px-5 text-base has-data-[icon=inline-start]:pl-4"
-        render={<a href={REPO_URL} target="_blank" rel="noreferrer" />}
+        render={<GithubRepoLink />}
       >
         <GithubMark data-icon="inline-start" className="size-5" />
         Star on GitHub

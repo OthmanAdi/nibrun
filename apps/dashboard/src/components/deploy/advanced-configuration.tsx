@@ -1,3 +1,4 @@
+import { DASHBOARD_DEPLOY_PATH } from '@repo/global-constants';
 import { Button } from '@repo/ui/components/button';
 import { Link } from '@tanstack/react-router';
 
@@ -9,7 +10,12 @@ export function AdvancedConfiguration() {
       variant="ghost"
       size="sm"
       className="self-center text-muted-foreground"
-      render={<Link to="/deploy" search={(previous) => ({ ...previous, minimal: undefined })} />}
+      render={
+        <Link
+          to={DASHBOARD_DEPLOY_PATH}
+          search={(previous) => ({ ...previous, minimal: undefined })}
+        />
+      }
     >
       Advanced configuration
     </Button>

@@ -1,22 +1,18 @@
-import { GithubIcon } from '#icons/github-icon.tsx';
-import { LANDING_ORIGIN, REPO_URL } from '#lib/site.ts';
+import { GithubMark } from '@repo/ui/custom/github-mark';
+import { GithubRepoLink } from '@repo/ui/custom/github-repo-link';
+import { WWW_ORIGIN } from '#lib/www-origin.ts';
 
-// A new tab for the repository and the same one for home: whoever is mid-deploy here has a
-// binary in storage that only this tab knows about, and only home is worth losing it for.
+// Home stays in this tab: whoever is mid-deploy here has a binary in storage that only this tab
+// knows about, and home is the one place worth losing it for.
 export function OpenSourceFooter() {
   return (
     <footer className="flex items-center gap-3 text-muted-foreground text-sm">
-      <a
-        className="inline-flex items-center gap-1.5 hover:underline"
-        href={REPO_URL}
-        target="_blank"
-        rel="noreferrer"
-      >
-        <GithubIcon className="size-4" />
+      <GithubRepoLink className="inline-flex items-center gap-1.5 hover:underline">
+        <GithubMark className="size-4" />
         nibrun is fully open source
-      </a>
+      </GithubRepoLink>
       <span aria-hidden="true">·</span>
-      <a className="hover:underline" href={LANDING_ORIGIN}>
+      <a className="hover:underline" href={WWW_ORIGIN}>
         Home
       </a>
     </footer>
