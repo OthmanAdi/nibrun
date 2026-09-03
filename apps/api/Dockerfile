@@ -17,6 +17,7 @@ COPY --from=install /temp/deps ./
 COPY tsconfig.json turbo.json ./
 COPY packages packages
 COPY apps apps
+COPY brand brand
 ENV NODE_ENV=production
 RUN bun run build --filter=@repo/api
 
