@@ -29,6 +29,25 @@ export const DEPLOY_PRESETS = {
     arg: ['nibrun'],
     minimal: true,
   },
+  'open-connector': {
+    name: 'open-connector',
+    binary:
+      'https://github.com/oomol-lab/open-connector/releases/download/v1.5.0/open-connector-linux-x64',
+    sha256: '127c17d6dcdbd646733ddcb714509996e75cbede1f0eaca6ded9b26fa9115ee2',
+    port: 3000,
+    env: [
+      'HOST=0.0.0.0',
+      `OOMOL_CONNECT_DATA_DIR=${interpolableRuntimeValue(RUNTIME_VALUES.DATA_DIR.name)}`,
+      `OOMOL_CONNECT_ORIGIN=https://${interpolableRuntimeValue(RUNTIME_VALUES.HOSTNAME.name)}`,
+      // The catalog held in memory is the largest allocation openconnector makes, and upstream
+      // names the 256 MiB machine as the case for reading its schemas off disk instead.
+      'OOMOL_CONNECT_CATALOG_LAZY_SCHEMAS=true',
+      'OOMOL_CONNECT_ENCRYPTION_KEY',
+      'OOMOL_CONNECT_ADMIN_TOKEN',
+      'OOMOL_CONNECT_RUNTIME_TOKEN',
+    ],
+    minimal: true,
+  },
   pocketbase: {
     name: 'pocketbase',
     binary:
