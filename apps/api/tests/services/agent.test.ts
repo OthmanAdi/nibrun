@@ -25,6 +25,7 @@ const SESSION_REQUEST = {
 class FakeAgentRepository implements AgentRepositoryContract {
   readonly #sessions = new AgentSessions();
   observed: HostObservation | undefined;
+  sessionExpiresAt: Date | undefined;
 
   saveSession({
     sessionToken,
@@ -35,6 +36,7 @@ class FakeAgentRepository implements AgentRepositoryContract {
     hostId: HostId;
     expiresAt: Date;
   }): Promise<void> {
+    this.sessionExpiresAt = expiresAt;
     this.#sessions.open({ sessionToken, hostId, expiresAt });
     return Promise.resolve();
   }
@@ -137,19 +139,21 @@ class FakeHostnameReconcile implements HostnameReconcile {
 }
 
 function build() {
+  const agentRepo = new FakeAgentRepository();
   const deployments = new FakeDeploymentsService();
   const apps = new FakeAppsService();
   const exports = new FakeExportsService();
   const artifacts = new FakeUploadSweep();
   const hostnames = new FakeHostnameReconcile();
   return {
+    agentRepo,
     apps,
     deployments,
     exports,
     artifacts,
     hostnames,
     service: new AgentService({
-      agentRepo: new FakeAgentRepository(),
+      agentRepo,
       deploymentsService: deployments as unknown as DeploymentsService,
       appsService: apps as unknown as AppsService,
       exportsService: exports as unknown as ExportsService,
@@ -180,6 +184,17 @@ describe('a session is the identity a host is answered as', () => {
     await expect(service.hostForSession({ sessionToken: 'not-a-session' })).rejects.toBeInstanceOf(
       UnauthorizedError,
     );
+  });
+});
+
+describe('a session is held for the lifetime its host was told about', () => {
+  // The lifetime used to be announced and never recorded, so nothing held the session to it.
+  test('the expiry the host is given is the one the session is saved under', async () => {
+    const { service, agentRepo } = build();
+
+    const session = await service.openSession(SESSION_REQUEST);
+
+    expect(agentRepo.sessionExpiresAt?.toISOString()).toBe(session.expiresAt);
   });
 });
 
