@@ -9,6 +9,7 @@ import {
   type SecretString,
   Value,
 } from '@repo/protocol';
+import { AgentSessions } from '#lib/agent/sessions.ts';
 import { UnauthorizedError } from '#lib/errors.ts';
 import type { AgentRepositoryContract, HostObservation } from '#repositories/agent.repository.ts';
 import { AgentService, type HostnameReconcile, type UploadSweep } from '#services/agent.service.ts';
@@ -22,22 +23,24 @@ const SESSION_REQUEST = {
 } as unknown as AgentSessionRequest;
 
 class FakeAgentRepository implements AgentRepositoryContract {
-  readonly #hostBySession = new Map<string, HostId>();
+  readonly #sessions = new AgentSessions();
   observed: HostObservation | undefined;
 
   saveSession({
     sessionToken,
     hostId,
+    expiresAt,
   }: {
     sessionToken: SecretString;
     hostId: HostId;
+    expiresAt: Date;
   }): Promise<void> {
-    this.#hostBySession.set(sessionToken, hostId);
+    this.#sessions.open({ sessionToken, hostId, expiresAt });
     return Promise.resolve();
   }
 
   hostForSession({ sessionToken }: { sessionToken: string }): Promise<HostId | undefined> {
-    return Promise.resolve(this.#hostBySession.get(sessionToken));
+    return Promise.resolve(this.#sessions.hostFor({ sessionToken, now: new Date() }));
   }
 
   desiredState({ hostId }: { hostId: HostId }): Promise<HostDesiredState> {
