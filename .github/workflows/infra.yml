@@ -3,6 +3,11 @@ name: infra
 # No paths filter: infra-passed is a required check, and a check gated by a path
 # filter never reports on the PRs it skips, leaving them unmergeable. The plan
 # script decides for itself whether anything under infra/terraform changed.
+#
+# A pull request from a fork is the one case the plan cannot run in: GitHub issues
+# no OIDC token to it, so the role cannot be assumed and the step fails before
+# terraform is reached. Skipping is what leaves infra-passed green there, because a
+# job that was skipped is neither a failure nor a cancellation.
 on: pull_request
 
 concurrency:
@@ -34,6 +39,7 @@ jobs:
         run: bun run --filter @repo/internal-scripts terraform-check
 
   terraform-plan:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
